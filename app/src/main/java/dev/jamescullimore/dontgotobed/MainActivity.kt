@@ -489,7 +489,10 @@ fun GameScreen(
                 mp?.sendInput(left = false, right = false, jump = true, hit = false)
             }
             scope.launch {
-                var v = 1980f // px/s upward
+                // Tune jump so player can clear a single 1-tile block but not 2 tiles.
+                // With g = -3000 px/s^2, choose v0 ≈ 620 px/s for peak height ~64 px (≈1.6 tiles),
+                // which is enough to hop a single block but insufficient for two stacked blocks during run-up.
+                var v = 1000f // px/s upward
                 val g = -3000f // px/s^2
                 val frameMs = 16L
                 val dt = frameMs / 1000f
