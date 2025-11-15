@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - INPUT|left|right|jump|hit  (booleans as 0/1)
  * - POS|xDp|heightPx           (floats)
  * - TILE|destroy|x|y          (ints)
+ * - TILE|place|x|y            (ints)
+ * - TILE|hp|x|y|health        (ints)
  */
 class MultiplayerManager(
     private val isHost: Boolean,
@@ -47,6 +49,8 @@ class MultiplayerManager(
         fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean) {}
         fun onPeerPos(xDp: Float, heightPx: Float) {}
         fun onTileDestroyed(x: Int, y: Int) {}
+        fun onTilePlaced(x: Int, y: Int) {}
+        fun onTileHealth(x: Int, y: Int, health: Int) {}
         fun onPeerSelectedPlayer(name: String) {}
         fun onConnectionChanged(connected: Boolean) {}
     }
@@ -90,6 +94,18 @@ class MultiplayerManager(
     fun sendTileDestroyed(x: Int, y: Int) {
         if (!isHost) return
         val msg = "TILE|destroy|$x|$y"
+        send(msg)
+    }
+
+    fun sendTilePlaced(x: Int, y: Int) {
+        if (!isHost) return
+        val msg = "TILE|place|$x|$y"
+        send(msg)
+    }
+
+    fun sendTileHealth(x: Int, y: Int, health: Int) {
+        if (!isHost) return
+        val msg = "TILE|hp|$x|$y|$health"
         send(msg)
     }
 
@@ -216,15 +232,40 @@ class MultiplayerManager(
             } else {
                 Log.w(TAG, "malformed POS: ${parts.joinToString("|")}")
             }
-            "TILE" -> if (parts.size >= 4 && parts[1] == "destroy") {
-                val x = parts[2].toIntOrNull()
-                val y = parts[3].toIntOrNull()
-                if (x == null || y == null) {
-                    Log.w(TAG, "malformed TILE: ${parts.joinToString("|")}")
-                    return
+            "TILE" -> if (parts.size >= 4) {
+                val action = parts[1]
+                when (action) {
+                    "destroy", "place" -> {
+                        val x = parts.getOrNull(2)?.toIntOrNull()
+                        val y = parts.getOrNull(3)?.toIntOrNull()
+                        if (x == null || y == null) {
+                            Log.w(TAG, "malformed TILE: ${parts.joinToString("|")}")
+                            return
+                        }
+                        when (action) {
+                            "destroy" -> {
+                                Log.d(TAG, "parsed TILE destroy x=$x y=$y")
+                                listener.onTileDestroyed(x, y)
+                            }
+                            "place" -> {
+                                Log.d(TAG, "parsed TILE place x=$x y=$y")
+                                listener.onTilePlaced(x, y)
+                            }
+                        }
+                    }
+                    "hp" -> {
+                        val x = parts.getOrNull(2)?.toIntOrNull()
+                        val y = parts.getOrNull(3)?.toIntOrNull()
+                        val hp = parts.getOrNull(4)?.toIntOrNull()
+                        if (x == null || y == null || hp == null) {
+                            Log.w(TAG, "malformed TILE hp: ${parts.joinToString("|")}")
+                            return
+                        }
+                        Log.d(TAG, "parsed TILE hp x=$x y=$y hp=$hp")
+                        listener.onTileHealth(x, y, hp)
+                    }
+                    else -> Log.w(TAG, "unknown TILE action '$action': ${parts.joinToString("|")}")
                 }
-                Log.d(TAG, "parsed TILE destroy x=$x y=$y")
-                listener.onTileDestroyed(x, y)
             } else {
                 Log.w(TAG, "unknown or malformed TILE: ${parts.joinToString("|")}")
             }

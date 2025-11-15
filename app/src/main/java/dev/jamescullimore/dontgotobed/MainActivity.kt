@@ -39,6 +39,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Keep the screen awake during gameplay
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Use immersive fullscreen: hide status and navigation bars
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        val insetsController = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+        insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         setContent {
             DontGoToBedTheme {
                 val context = LocalContext.current
@@ -83,6 +90,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            // Re-apply immersive mode when window regains focus
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+            val insetsController = androidx.core.view.WindowInsetsControllerCompat(window, window.decorView)
+            insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
         }
     }
 }
@@ -304,18 +322,42 @@ fun GameScreen(
         val blockSizePx = with(density) { blockSize.toPx() }
 
         // Tile map model (x wraps, y does not). true = Solid, false = Empty
-        data class TileMap(val width: Int, val height: Int, val tiles: MutableList<Boolean>, val hitCounts: MutableList<Int>) {
+        data class TileMap(
+            val width: Int,
+            val height: Int,
+            val tiles: MutableList<Boolean>,
+            val healths: MutableList<Int>
+        ) {
+            val maxHealth = 30
             fun idx(x: Int, y: Int): Int = (y * width) + ((x % width) + width) % width
             fun inY(y: Int) = y >= 0 && y < height
             fun get(x: Int, y: Int): Boolean = inY(y) && tiles[idx(x, y)]
-            fun set(x: Int, y: Int, solid: Boolean) { if (inY(y)) tiles[idx(x, y)] = solid }
-            fun addHit(x: Int, y: Int): Int {
+            fun getHealth(x: Int, y: Int): Int = if (inY(y)) healths[idx(x, y)] else 0
+            fun set(x: Int, y: Int, solid: Boolean) {
+                if (!inY(y)) return
+                val i = idx(x, y)
+                tiles[i] = solid
+                // When turning solid, (re)initialize health to maxHealth. When clearing, zero it.
+                healths[i] = if (solid) maxHealth else 0
+            }
+            fun setHealth(x: Int, y: Int, health: Int) {
+                if (!inY(y)) return
+                val i = idx(x, y)
+                val clamped = health.coerceIn(0, maxHealth)
+                healths[i] = clamped
+                tiles[i] = clamped > 0
+            }
+            // Damages a solid tile by amount; returns remaining health (0 if destroyed or out of bounds)
+            fun damage(x: Int, y: Int, amount: Int): Int {
                 if (!inY(y)) return 0
                 val i = idx(x, y)
-                hitCounts[i] = (hitCounts[i] + 1).coerceAtLeast(0)
-                return hitCounts[i]
+                if (!tiles[i]) return 0
+                healths[i] = (healths[i] - amount).coerceAtLeast(0)
+                if (healths[i] == 0) {
+                    tiles[i] = false
+                }
+                return healths[i]
             }
-            fun resetHits(x: Int, y: Int) { if (inY(y)) hitCounts[idx(x, y)] = 0 }
         }
 
         // Build a sample map with ground and some platforms
@@ -325,8 +367,8 @@ fun GameScreen(
                     val w = 64 // horizontal wrap length in tiles
                     val h = 18 // vertical tiles (0 is ground row)
                     val tiles = MutableList(w * h) { false }
-                    val hitCounts = MutableList(w * h) { 0 }
-                    val map = TileMap(w, h, tiles, hitCounts)
+                    val healths = MutableList(w * h) { 0 }
+                    val map = TileMap(w, h, tiles, healths)
                     // Ground: fill row 0 with solid
                     for (x in 0 until w) map.set(x, 0, true)
                     // Some stacks and floating islands
@@ -467,17 +509,56 @@ fun GameScreen(
             }
             // Y bounds check; X wraps in TileMap.get
             if (!tileMap.inY(targetRow)) return
-            if (!tileMap.get(targetCol, targetRow)) return // nothing
+            if (!tileMap.get(targetCol, targetRow)) return // nothing to hit
 
-            val hits = tileMap.addHit(targetCol, targetRow)
-            if (hits >= 3) {
-                tileMap.set(targetCol, targetRow, false)
-                tileMap.resetHits(targetCol, targetRow)
-                mapVersion++ // trigger recomposition so tile disappears
-                // Sync to client if hosting
-                if (isHostSelected == true) {
-                    mp?.sendTileDestroyed(((targetCol % tileMap.width) + tileMap.width) % tileMap.width, targetRow)
+            val remaining = tileMap.damage(targetCol, targetRow, 10)
+            mapVersion++ // trigger recomposition for health color or disappearance
+            if (isHostSelected == true) {
+                val wrappedX = ((targetCol % tileMap.width) + tileMap.width) % tileMap.width
+                if (remaining <= 0) {
+                    mp?.sendTileDestroyed(wrappedX, targetRow)
+                } else {
+                    mp?.sendTileHealth(wrappedX, targetRow, remaining)
                 }
+            }
+        }
+
+        // Place logic: place a block into the adjacent tile in the last look direction
+        fun place() {
+            // Determine player tile center
+            val xPx = xDpToPx(playerWorldXDp)
+            val centerXPx = xPx + blockSizePx / 2f
+            val colCenter = kotlin.math.floor(centerXPx / tileSizePx).toInt()
+
+            val centerYPx = heightPx + blockSizePx / 2f
+            val rowCenter = kotlin.math.floor(centerYPx / tileSizePx).toInt()
+
+            var targetCol = colCenter
+            var targetRow = rowCenter
+            when (lastDirection) {
+                Direction.Left -> targetCol = colCenter - 1
+                Direction.Right -> targetCol = colCenter + 1
+                Direction.Up -> targetRow = rowCenter + 1
+                Direction.Down -> targetRow = rowCenter - 1
+            }
+            // Ensure Y in bounds; X wraps in TileMap
+            if (!tileMap.inY(targetRow)) return
+
+            // Do not place where the player currently occupies
+            val playerCols = playerOverlappingColumns(xPx)
+            val playerRows = playerOverlappingRows(heightPx)
+            if (targetCol in playerCols && targetRow in playerRows) return
+
+            // Only place if empty
+            if (tileMap.get(targetCol, targetRow)) return
+
+            // Place block with full health
+            tileMap.set(targetCol, targetRow, true)
+            mapVersion++
+
+            // Sync to client if hosting
+            if (isHostSelected == true) {
+                mp?.sendTilePlaced(((targetCol % tileMap.width) + tileMap.width) % tileMap.width, targetRow)
             }
         }
 
@@ -504,18 +585,35 @@ fun GameScreen(
                     val xPx = xDpToPx(playerWorldXDp)
                     val cols = playerOverlappingColumns(xPx)
 
-                    // Ceiling collision when ascending: player's top hits tile bottom
+                    // Ceiling collision when ascending: sweep all crossed rows and clamp to the first tile bottom
                     if (v > 0f) {
                         val prevTop = prevBottom + blockSizePx
                         val nowTop = heightPx + blockSizePx
-                        val prevTopRowBoundary = kotlin.math.floor(prevTop / tileSizePx).toInt()
-                        val nowTopRowBoundary = kotlin.math.floor(nowTop / tileSizePx).toInt()
-                        if (nowTopRowBoundary > prevTopRowBoundary) {
-                            val row = nowTopRowBoundary // row containing new top
-                            var hit = false
-                            for (c in cols) if (tileMap.get(c, row)) { hit = true; break }
-                            if (hit) {
-                                val tileBottomPx = row * tileSizePx
+                        val startRow = kotlin.math.floor(prevTop / tileSizePx).toInt()
+                        val endRow = kotlin.math.floor(nowTop / tileSizePx).toInt()
+                        if (endRow >= startRow) {
+                            var hitRow: Int? = null
+                            // Check every row boundary we crossed this frame (handles fast/tunneling motion)
+                            for (row in (startRow + 1)..endRow) {
+                                var hit = false
+                                for (c in cols) {
+                                    if (tileMap.get(c, row)) { hit = true; break }
+                                }
+                                if (hit) { hitRow = row; break }
+                            }
+                            if (hitRow != null) {
+                                val tileBottomPx = hitRow!! * tileSizePx
+                                heightPx = tileBottomPx - blockSizePx
+                                v = 0f
+                            }
+                        }
+                        // Safety: if after integration our top is already inside a solid tile (e.g., block placed above), resolve
+                        run {
+                            val topRowNow = kotlin.math.floor(((heightPx + blockSizePx - 0.001f) / tileSizePx)).toInt()
+                            var overlap = false
+                            for (c in cols) { if (tileMap.get(c, topRowNow)) { overlap = true; break } }
+                            if (overlap) {
+                                val tileBottomPx = topRowNow * tileSizePx
                                 heightPx = tileBottomPx - blockSizePx
                                 v = 0f
                             }
@@ -590,7 +688,18 @@ fun GameScreen(
                 override fun onTileDestroyed(x: Int, y: Int) {
                     if (isHostSelected == false) {
                         tileMap.set(x, y, false)
-                        tileMap.resetHits(x, y)
+                        mapVersion++
+                    }
+                }
+                override fun onTilePlaced(x: Int, y: Int) {
+                    if (isHostSelected == false) {
+                        tileMap.set(x, y, true)
+                        mapVersion++
+                    }
+                }
+                override fun onTileHealth(x: Int, y: Int, health: Int) {
+                    if (isHostSelected == false) {
+                        tileMap.setHealth(x, y, health)
                         mapVersion++
                     }
                 }
@@ -655,13 +764,6 @@ fun GameScreen(
                 modifier = Modifier
                     .matchParentSize()
                     .background(Color(0xFF87CEEB))
-                    .pointerInput(tileMap.width, density) {
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            change.consume()
-                            val deltaDp = with(density) { dragAmount.toDp() }
-                            playerWorldXDp = applyHorizontalCollision(playerWorldXDp, playerWorldXDp + deltaDp, heightPx)
-                        }
-                    }
             ) {
                 // Camera offset in dp (world x at player minus screen center)
                 val cameraOffsetXDp = playerWorldXDp - centerX
@@ -678,12 +780,16 @@ fun GameScreen(
                     val xDp = pxToDp(k * tileSizePx - cameraOffsetXPx)
                     for (row in 0 until tileMap.height) {
                         if (tileMap.get(mapCol, row)) {
+                            // Compute color saturation based on health percentage
+                            val hp = tileMap.getHealth(mapCol, row)
+                            val ratio = if (hp > 0) hp.toFloat() / tileMap.maxHealth.toFloat() else 0f
+                            val blockColor = Color.hsl(120f, ratio.coerceIn(0f, 1f), 0.42f)
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .offset(x = xDp, y = -pxToDp(row * tileSizePx))
                                     .size(tileSize)
-                                    .background(Color.DarkGray)
+                                    .background(blockColor)
                             )
                         }
                     }
@@ -925,6 +1031,12 @@ fun GameScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                 ) { Text("Hit") }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { place() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+                ) { Text("Place") }
             }
         }
     }
