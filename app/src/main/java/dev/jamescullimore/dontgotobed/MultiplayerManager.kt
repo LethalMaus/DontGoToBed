@@ -22,8 +22,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Messages are plain strings to keep it lightweight (no JSON dependency):
  * - HELLO|role
- * - INPUT|left|right|jump|hit  (booleans as 0/1)
- * - POS|xDp|heightPx           (floats)
+ * - INPUT|left|right|jump|hit|place  (booleans as 0/1; 'place' optional, defaults to 0 if missing)
+ * - POS|col|row|f             (ints, optional f=1 right, 0 left; if missing defaults to 1)
  * - TILE|destroy|x|y          (ints)
  * - TILE|place|x|y            (ints)
  * - TILE|hp|x|y|health        (ints)
@@ -38,16 +38,34 @@ class MultiplayerManager(
     @Volatile
     private var listener: Listener = initialListener
 
+    // Cache last-known peer state so late listeners (e.g., when switching screens) can immediately reflect it
+    @Volatile private var lastPeerSelectedName: String? = null
+    @Volatile private var lastPeerCol: Int? = null
+    @Volatile private var lastPeerRow: Int? = null
+    @Volatile private var lastPeerFacingRight: Boolean? = null
+
     fun updateListener(newListener: Listener) {
         this.listener = newListener
         // Immediately inform the new listener about current connection state so UI can reflect it
         try {
             newListener.onConnectionChanged(connected.get())
         } catch (_: Exception) {}
+        // Replay cached peer identity and position if available
+        try {
+            lastPeerSelectedName?.let { newListener.onPeerSelectedPlayer(it) }
+        } catch (_: Exception) {}
+        try {
+            val col = lastPeerCol
+            val row = lastPeerRow
+            val fr = lastPeerFacingRight
+            if (col != null && row != null && fr != null) {
+                newListener.onPeerPos(col, row, fr)
+            }
+        } catch (_: Exception) {}
     }
     interface Listener {
-        fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean) {}
-        fun onPeerPos(xDp: Float, heightPx: Float) {}
+        fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean) {}
+        fun onPeerPos(col: Int, row: Int, facingRight: Boolean) {}
         fun onTileDestroyed(x: Int, y: Int) {}
         fun onTilePlaced(x: Int, y: Int) {}
         fun onTileHealth(x: Int, y: Int, health: Int) {}
@@ -80,13 +98,13 @@ class MultiplayerManager(
     }
 
     // Client -> Host messages
-    fun sendInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean) {
-        val msg = "INPUT|${b(left)}|${b(right)}|${b(jump)}|${b(hit)}"
+    fun sendInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean = false) {
+        val msg = "INPUT|${b(left)}|${b(right)}|${b(jump)}|${b(hit)}|${b(place)}"
         send(msg)
     }
 
-    fun sendPos(xDp: Float, heightPx: Float) {
-        val msg = "POS|$xDp|$heightPx"
+    fun sendPos(col: Int, row: Int, facingRight: Boolean) {
+        val msg = "POS|$col|$row|${b(facingRight)}"
         send(msg)
     }
 
@@ -215,20 +233,26 @@ class MultiplayerManager(
                 val r = parts[2] == "1"
                 val j = parts[3] == "1"
                 val h = parts[4] == "1"
-                Log.d(TAG, "parsed INPUT l=$l r=$r j=$j h=$h")
-                listener.onPeerInput(l, r, j, h)
+                val p = if (parts.size >= 6) parts[5] == "1" else false
+                Log.d(TAG, "parsed INPUT l=$l r=$r j=$j h=$h p=$p")
+                listener.onPeerInput(l, r, j, h, p)
             } else {
                 Log.w(TAG, "malformed INPUT: ${parts.joinToString("|")}")
             }
             "POS" -> if (parts.size >= 3) {
-                val x = parts[1].toFloatOrNull()
-                val hp = parts[2].toFloatOrNull()
-                if (x == null || hp == null) {
+                val col = parts[1].toIntOrNull()
+                val row = parts[2].toIntOrNull()
+                val fr = if (parts.size >= 4) parts[3] == "1" else true
+                if (col == null || row == null) {
                     Log.w(TAG, "malformed POS: ${parts.joinToString("|")}")
                     return
                 }
-                Log.d(TAG, "parsed POS xDp=$x heightPx=$hp")
-                listener.onPeerPos(x, hp)
+                Log.d(TAG, "parsed POS col=$col row=$row fr=$fr")
+                // Cache last-known peer position/facing for late listeners
+                lastPeerCol = col
+                lastPeerRow = row
+                lastPeerFacingRight = fr
+                listener.onPeerPos(col, row, fr)
             } else {
                 Log.w(TAG, "malformed POS: ${parts.joinToString("|")}")
             }
@@ -270,8 +294,11 @@ class MultiplayerManager(
                 Log.w(TAG, "unknown or malformed TILE: ${parts.joinToString("|")}")
             }
             "CHAR" -> if (parts.size >= 2) {
-                Log.d(TAG, "parsed CHAR name=${parts[1]}")
-                listener.onPeerSelectedPlayer(parts[1])
+                val name = parts[1]
+                Log.d(TAG, "parsed CHAR name=$name")
+                // Cache last-known peer character for late listeners
+                lastPeerSelectedName = name
+                listener.onPeerSelectedPlayer(name)
             } else {
                 Log.w(TAG, "malformed CHAR: ${parts.joinToString("|")}")
             }

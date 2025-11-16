@@ -310,80 +310,133 @@ fun GameScreen(
         var connectionStatus by remember { mutableStateOf(false) }
         var hostIp by remember { mutableStateOf(initialHostIp) }
 
-        // Sizes
-        val tileSize = 40.dp
-        val blockSize = 40.dp // player size equals tile size
+        // World unit and sizes
+        val UNIT = 15.dp
         val step = 16.dp
-        val centerX = (maxWidth - blockSize) / 2
+        val playerWidth = UNIT * 2
+        val playerHeight = UNIT * 3
+        val centerX = (maxWidth - playerWidth) / 2
         val screenWidth = maxWidth
 
         // Convert sizes to px for collision math
-        val tileSizePx = with(density) { tileSize.toPx() }
-        val blockSizePx = with(density) { blockSize.toPx() }
+        val unitPx = with(density) { UNIT.toPx() }
+        val playerWidthPx = with(density) { playerWidth.toPx() }
+        val playerHeightPx = with(density) { playerHeight.toPx() }
 
-        // Tile map model (x wraps, y does not). true = Solid, false = Empty
-        data class TileMap(
-            val width: Int,
-            val height: Int,
-            val tiles: MutableList<Boolean>,
-            val healths: MutableList<Int>
-        ) {
+        // Block-based map on micro-grid. occ stores blockId or -1 at each cell
+        data class Block(
+            val id: Int,
+            val col: Int,
+            val row: Int,
+            val w: Int,
+            val h: Int,
+            var health: Int,
+            val maxHealth: Int,
+            val color: Color
+        )
+        class TileMap(val width: Int, val height: Int) {
             val maxHealth = 30
+            private val occ = IntArray(width * height) { -1 }
+            private val blocks = mutableMapOf<Int, Block>()
+            private var nextId = 1
+
+            fun forEachBlock(action: (Block) -> Unit) {
+                // Iterate over current blocks without exposing internal map
+                blocks.values.forEach(action)
+            }
+
             fun idx(x: Int, y: Int): Int = (y * width) + ((x % width) + width) % width
             fun inY(y: Int) = y >= 0 && y < height
-            fun get(x: Int, y: Int): Boolean = inY(y) && tiles[idx(x, y)]
-            fun getHealth(x: Int, y: Int): Int = if (inY(y)) healths[idx(x, y)] else 0
-            fun set(x: Int, y: Int, solid: Boolean) {
-                if (!inY(y)) return
-                val i = idx(x, y)
-                tiles[i] = solid
-                // When turning solid, (re)initialize health to maxHealth. When clearing, zero it.
-                healths[i] = if (solid) maxHealth else 0
+            fun get(x: Int, y: Int): Boolean = inY(y) && occ[idx(x, y)] != -1
+            fun getHealth(x: Int, y: Int): Int {
+                if (!inY(y)) return 0
+                val id = occ[idx(x, y)]
+                return if (id == -1) 0 else (blocks[id]?.health ?: 0)
             }
             fun setHealth(x: Int, y: Int, health: Int) {
                 if (!inY(y)) return
-                val i = idx(x, y)
-                val clamped = health.coerceIn(0, maxHealth)
-                healths[i] = clamped
-                tiles[i] = clamped > 0
+                val id = occ[idx(x, y)]
+                val b = blocks[id] ?: return
+                val clamped = health.coerceIn(0, b.maxHealth)
+                b.health = clamped
+                if (b.health <= 0) removeBlock(id)
             }
-            // Damages a solid tile by amount; returns remaining health (0 if destroyed or out of bounds)
+            fun set(x: Int, y: Int, solid: Boolean) {
+                if (!inY(y)) return
+                if (solid) {
+                    // Place a 3x3 block anchored at (x,y)
+                    placeBlock(x, y, 3, 3, Color(0xFF2E8B57))
+                } else {
+                    val id = occ[idx(x, y)]
+                    if (id != -1) removeBlock(id)
+                }
+            }
+            fun placeBlock(col: Int, row: Int, w: Int, h: Int, color: Color, health: Int = maxHealth): Int {
+                // Check bounds and emptiness
+                if (!inY(row) || !inY(row + h - 1)) return -1
+                val anchorColWrapped = ((col % width) + width) % width
+                for (dx in 0 until w) {
+                    val cx = (anchorColWrapped + dx) % width
+                    for (dy in 0 until h) {
+                        val ry = row + dy
+                        if (!inY(ry) || occ[idx(cx, ry)] != -1) return -1
+                    }
+                }
+                val id = nextId++
+                val b = Block(id, anchorColWrapped, row, w, h, health, maxHealth, color)
+                blocks[id] = b
+                for (dx in 0 until w) {
+                    val cx = (anchorColWrapped + dx) % width
+                    for (dy in 0 until h) occ[idx(cx, row + dy)] = id
+                }
+                return id
+            }
+            fun removeBlock(id: Int) {
+                val b = blocks[id] ?: return
+                for (dx in 0 until b.w) {
+                    val cx = (b.col + dx) % width
+                    for (dy in 0 until b.h) occ[idx(cx, b.row + dy)] = -1
+                }
+                blocks.remove(id)
+            }
             fun damage(x: Int, y: Int, amount: Int): Int {
                 if (!inY(y)) return 0
-                val i = idx(x, y)
-                if (!tiles[i]) return 0
-                healths[i] = (healths[i] - amount).coerceAtLeast(0)
-                if (healths[i] == 0) {
-                    tiles[i] = false
-                }
-                return healths[i]
+                val id = occ[idx(x, y)]
+                val b = blocks[id] ?: return 0
+                b.health = (b.health - amount).coerceAtLeast(0)
+                if (b.health <= 0) removeBlock(id)
+                return b.health
             }
+            fun snapshotBlocks(): List<Block> = blocks.values.map { it.copy() }
         }
 
-        // Build a sample map with ground and some platforms
+        // Build sample map with 3x3 blocks on micro-grid (scale prior grid by 3)
         val tileMap by remember(maxWidth) {
             mutableStateOf(
                 run {
-                    val w = 64 // horizontal wrap length in tiles
-                    val h = 18 // vertical tiles (0 is ground row)
-                    val tiles = MutableList(w * h) { false }
-                    val healths = MutableList(w * h) { 0 }
-                    val map = TileMap(w, h, tiles, healths)
-                    // Ground: fill row 0 with solid
-                    for (x in 0 until w) map.set(x, 0, true)
-                    // Some stacks and floating islands
-                    // Stack at x=10, rows 1..3
-                    map.set(10, 1, true); map.set(10, 2, true); map.set(10, 3, true)
-                    // Floating 3-long at x=18..20, row 4
-                    map.set(18, 4, true); map.set(19, 4, true); map.set(20, 4, true)
-                    // Small steps
-                    map.set(26, 1, true); map.set(27, 2, true); map.set(28, 3, true)
-                    // A gap in ground and a bridge above
-                    map.set(36, 0, false); map.set(37, 0, false); map.set(38, 0, false)
-                    map.set(36, 2, true); map.set(37, 2, true); map.set(38, 2, true)
-                    // Another tower
-                    map.set(46, 1, true); map.set(46, 2, true)
-                    // Return map
+                    val w = 64 * 3
+                    val h = 18 * 3
+                    val map = TileMap(w, h)
+                    // Ground band (rows 0..2) tiled with adjacent 3x3 blocks
+                    for (x in 0 until w step 3) map.placeBlock(x, 0, 3, 3, Color(0xFF2E8B57))
+                    // Stacks and platforms analogous to previous positions (scaled by 3)
+                    map.placeBlock(10*3, 1*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(10*3, 2*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(10*3, 3*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(18*3, 4*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(19*3, 4*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(20*3, 4*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(26*3, 1*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(27*3, 2*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(28*3, 3*3, 3, 3, Color(0xFF2E8B57))
+                    // Gap in ground at 36..38 previously: remove those blocks in ground band
+                    // By not placing at those x positions the ground band will have a gap
+                    // Bridge above at row 2*3
+                    map.placeBlock(36*3, 2*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(37*3, 2*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(38*3, 2*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(46*3, 1*3, 3, 3, Color(0xFF2E8B57))
+                    map.placeBlock(46*3, 2*3, 3, 3, Color(0xFF2E8B57))
                     map
                 }
             )
@@ -396,8 +449,13 @@ fun GameScreen(
         var lastDirection by remember { mutableStateOf(Direction.Right) }
 
         // Peer (remote) player state for host to render
+        // Smoothed render position (dp/px) and target position (px) derived from grid POS updates
         var peerWorldXDp by remember { mutableStateOf(0.dp) }
+        var peerWorldXPx by remember { mutableStateOf(0f) }
         var peerHeightPx by remember { mutableStateOf(0f) }
+        var peerTargetXPx by remember { mutableStateOf(0f) }
+        var peerTargetHeightPx by remember { mutableStateOf(0f) }
+        var peerHasPos by remember { mutableStateOf(false) }
         var peerFacingRight by remember { mutableStateOf(true) }
         var peerSelectedPlayer by remember { mutableStateOf<Player?>(null) }
 
@@ -409,7 +467,7 @@ fun GameScreen(
         LaunchedEffect(tileMap.width) {
             if (!didInitialSpawn) {
                 // Position player high above the highest tiles so they "fall in" from the top
-                heightPx = (tileMap.height * tileSizePx) + blockSizePx * 2f
+                heightPx = (tileMap.height * unitPx) + playerHeightPx * 2f
                 // Keep isJumping false so the existing unsupported check triggers the falling coroutine
                 isJumping = false
                 didInitialSpawn = true
@@ -422,16 +480,16 @@ fun GameScreen(
 
         fun playerOverlappingColumns(xPx: Float): IntRange {
             val left = xPx
-            val right = xPx + blockSizePx - 0.001f
-            val c0 = kotlin.math.floor(left / tileSizePx).toInt()
-            val c1 = kotlin.math.floor(right / tileSizePx).toInt()
+            val right = xPx + playerWidthPx - 0.001f
+            val c0 = kotlin.math.floor(left / unitPx).toInt()
+            val c1 = kotlin.math.floor(right / unitPx).toInt()
             return c0..c1
         }
         fun playerOverlappingRows(bottomPx: Float): IntRange {
             val bottom = bottomPx
-            val top = bottomPx + blockSizePx - 0.001f
-            val r0 = kotlin.math.floor(bottom / tileSizePx).toInt()
-            val r1 = kotlin.math.floor(top / tileSizePx).toInt()
+            val top = bottomPx + playerHeightPx - 0.001f
+            val r0 = kotlin.math.floor(bottom / unitPx).toInt()
+            val r1 = kotlin.math.floor(top / unitPx).toInt()
             return r0..r1
         }
         fun anySolidInColumnsRows(cols: IntRange, rows: IntRange): Boolean {
@@ -446,25 +504,25 @@ fun GameScreen(
             val movingRight = nxPx > prevPx
             val rows = playerOverlappingRows(bottomPx)
             if (movingRight) {
-                val rightEdge = nxPx + blockSizePx - 0.001f
-                val col = kotlin.math.floor(rightEdge / tileSizePx).toInt()
+                val rightEdge = nxPx + playerWidthPx - 0.001f
+                val col = kotlin.math.floor(rightEdge / unitPx).toInt()
                 // If the leading column has any solid in our rows, clamp to its left edge
                 val cols = col..col
                 if (anySolidInColumnsRows(cols, rows)) {
-                    val tileLeftPx = col * tileSizePx
-                    nxPx = tileLeftPx - blockSizePx
+                    val tileLeftPx = col * unitPx
+                    nxPx = tileLeftPx - playerWidthPx
                 }
             } else if (nxPx < prevPx) {
                 val leftEdge = nxPx
-                val col = kotlin.math.floor(leftEdge / tileSizePx).toInt()
+                val col = kotlin.math.floor(leftEdge / unitPx).toInt()
                 val cols = col..col
                 if (anySolidInColumnsRows(cols, rows)) {
-                    val tileRightPx = (col + 1) * tileSizePx
+                    val tileRightPx = (col + 1) * unitPx
                     nxPx = tileRightPx
                 }
             }
             // Wrap horizontally to keep values bounded (visuals still center on player)
-            val worldWidthPx = tileMap.width * tileSizePx
+            val worldWidthPx = tileMap.width * unitPx
             // Normalize nxPx to a stable range to reduce float drift
             nxPx = ((nxPx % worldWidthPx) + worldWidthPx) % worldWidthPx
             return pxToDp(nxPx)
@@ -487,79 +545,147 @@ fun GameScreen(
             }
         }
 
-        // Hit logic: damage adjacent tile in last facing direction; destroy after 3 hits
-        fun hit() {
-            if (isHostSelected == false) {
-                mp?.sendInput(left = false, right = false, jump = false, hit = true)
-            }
-            val xPx = xDpToPx(playerWorldXDp)
-            val centerXPx = xPx + blockSizePx / 2f
-            val colCenter = kotlin.math.floor(centerXPx / tileSizePx).toInt()
-
-            val centerYPx = heightPx + blockSizePx / 2f
-            val rowCenter = kotlin.math.floor(centerYPx / tileSizePx).toInt()
-
+        // Core action helpers (host-authoritative). They return true if world changed.
+        fun performHitAt(xDp: Dp, bottomPx: Float, facing: Direction): Boolean {
+            val xPx = xDpToPx(xDp)
+            val centerXPx = xPx + playerWidthPx / 2f
+            val colCenter = kotlin.math.floor(centerXPx / unitPx).toInt()
+            val centerYPx = bottomPx + playerHeightPx / 2f
+            val rowCenter = kotlin.math.floor(centerYPx / unitPx).toInt()
+            // Determine edge-adjacent target cell based on facing (use player edges, not center)
+            val leftCol = kotlin.math.floor((xPx) / unitPx).toInt()
+            val rightCol = kotlin.math.floor((xPx + playerWidthPx - 0.001f) / unitPx).toInt()
+            val bottomRow = kotlin.math.floor((bottomPx - 0.001f) / unitPx).toInt()
+            val topRow = kotlin.math.floor(((bottomPx + playerHeightPx - 0.001f) / unitPx)).toInt()
+            val midRow = (bottomRow + topRow) / 2
             var targetCol = colCenter
             var targetRow = rowCenter
-            when (lastDirection) {
-                Direction.Left -> targetCol = colCenter - 1
-                Direction.Right -> targetCol = colCenter + 1
-                Direction.Up -> targetRow = rowCenter + 1
-                Direction.Down -> targetRow = rowCenter - 1
+            when (facing) {
+                Direction.Left -> { targetCol = leftCol - 1; targetRow = midRow }
+                Direction.Right -> { targetCol = rightCol + 1; targetRow = midRow }
+                Direction.Up -> { targetCol = colCenter; targetRow = topRow + 1 }
+                Direction.Down -> { targetCol = colCenter; targetRow = bottomRow - 1 }
             }
-            // Y bounds check; X wraps in TileMap.get
-            if (!tileMap.inY(targetRow)) return
-            if (!tileMap.get(targetCol, targetRow)) return // nothing to hit
-
+            if (!tileMap.inY(targetRow)) return false
+            if (!tileMap.get(targetCol, targetRow)) return false
             val remaining = tileMap.damage(targetCol, targetRow, 10)
-            mapVersion++ // trigger recomposition for health color or disappearance
+            mapVersion++
             if (isHostSelected == true) {
                 val wrappedX = ((targetCol % tileMap.width) + tileMap.width) % tileMap.width
-                if (remaining <= 0) {
-                    mp?.sendTileDestroyed(wrappedX, targetRow)
-                } else {
-                    mp?.sendTileHealth(wrappedX, targetRow, remaining)
-                }
+                if (remaining <= 0) mp?.sendTileDestroyed(wrappedX, targetRow)
+                else mp?.sendTileHealth(wrappedX, targetRow, remaining)
             }
+            return true
         }
 
-        // Place logic: place a block into the adjacent tile in the last look direction
+        fun performPlaceAt(xDp: Dp, bottomPx: Float, facing: Direction): Boolean {
+            val xPx = xDpToPx(xDp)
+            val centerXPx = xPx + playerWidthPx / 2f
+            val colCenter = kotlin.math.floor(centerXPx / unitPx).toInt()
+            val leftCol = kotlin.math.floor((xPx) / unitPx).toInt()
+            val rightCol = kotlin.math.floor((xPx + playerWidthPx - 0.001f) / unitPx).toInt()
+            val bottomRow = kotlin.math.floor((bottomPx - 0.001f) / unitPx).toInt()
+            val topRow = kotlin.math.floor(((bottomPx + playerHeightPx - 0.001f) / unitPx)).toInt()
+
+            fun canPlaceAt(anchorCol: Int, anchorRow: Int): Boolean {
+                // Vertical bounds for the full 3x3 block
+                if (!tileMap.inY(anchorRow) || !tileMap.inY(anchorRow + 2)) return false
+                // Prevent placing exactly where the player stands (disallow true AABB overlap)
+                val playerCols = playerOverlappingColumns(xPx)
+                val playerRows = playerOverlappingRows(bottomPx)
+                val placeCols = anchorCol..(anchorCol + 2)
+                val placeRows = anchorRow..(anchorRow + 2)
+                val overlapCols = placeCols.any { it in playerCols }
+                val overlapRows = placeRows.any { it in playerRows }
+                if (overlapCols && overlapRows) return false
+                // Ensure the entire 3x3 region is empty (respect X wrapping)
+                for (dx in 0..2) {
+                    val cx = ((anchorCol + dx) % tileMap.width + tileMap.width) % tileMap.width
+                    for (dy in 0..2) {
+                        val ry = anchorRow + dy
+                        if (!tileMap.inY(ry) || tileMap.get(cx, ry)) return false
+                    }
+                }
+                return true
+            }
+
+            // Choose anchor for a 3x3 block depending on facing. Enforce adjacency-only placement (no vertical scan).
+            var targetCol = 0
+            var targetRow = 0
+            var hasTarget = false
+            when (facing) {
+                Direction.Left -> {
+                    // Block must be directly touching the player's left face
+                    targetCol = leftCol - 3
+                    // Align the 3x3 block base with the player's base row
+                    val playerRows = playerOverlappingRows(bottomPx)
+                    targetRow = playerRows.first
+                    // Require vertical overlap so it's truly adjacent
+                    val placeRows = targetRow..(targetRow + 2)
+                    val touchesVertically = placeRows.any { it in playerRows }
+                    hasTarget = touchesVertically && canPlaceAt(targetCol, targetRow)
+                }
+                Direction.Right -> {
+                    // Block must be directly touching the player's right face
+                    targetCol = rightCol + 1
+                    val playerRows = playerOverlappingRows(bottomPx)
+                    targetRow = playerRows.first
+                    val placeRows = targetRow..(targetRow + 2)
+                    val touchesVertically = placeRows.any { it in playerRows }
+                    hasTarget = touchesVertically && canPlaceAt(targetCol, targetRow)
+                }
+                Direction.Up -> {
+                    // Block must be directly above, touching the player's head
+                    targetCol = colCenter - 1
+                    targetRow = topRow + 1
+                    val playerCols = playerOverlappingColumns(xPx)
+                    val placeCols = targetCol..(targetCol + 2)
+                    val touchesHorizontally = placeCols.any { it in playerCols }
+                    hasTarget = touchesHorizontally && canPlaceAt(targetCol, targetRow)
+                }
+                Direction.Down -> {
+                    // Block must be directly below, touching the player's feet
+                    targetCol = colCenter - 1
+                    targetRow = bottomRow - 3
+                    val playerCols = playerOverlappingColumns(xPx)
+                    val placeCols = targetCol..(targetCol + 2)
+                    val touchesHorizontally = placeCols.any { it in playerCols }
+                    hasTarget = touchesHorizontally && canPlaceAt(targetCol, targetRow)
+                }
+            }
+
+            if (!hasTarget) return false
+
+            // Place the block
+            val id = tileMap.placeBlock(targetCol, targetRow, 3, 3, Color(0xFF2E8B57))
+            if (id != -1) {
+                mapVersion++
+                if (isHostSelected == true) {
+                    val wrappedX = ((targetCol % tileMap.width) + tileMap.width) % tileMap.width
+                    mp?.sendTilePlaced(wrappedX, targetRow)
+                }
+                return true
+            }
+            return false
+        }
+
+        // Hit logic: damage adjacent tile based on last facing.
+        fun hit() {
+            // Client just requests; host performs and broadcasts
+            if (isHostSelected == false) {
+                mp?.sendInput(left = false, right = false, jump = false, hit = true)
+                return
+            }
+            performHitAt(playerWorldXDp, heightPx, lastDirection)
+        }
+
+        // Place logic: place a 3x3 block into the adjacent cell (anchor) in last look direction
         fun place() {
-            // Determine player tile center
-            val xPx = xDpToPx(playerWorldXDp)
-            val centerXPx = xPx + blockSizePx / 2f
-            val colCenter = kotlin.math.floor(centerXPx / tileSizePx).toInt()
-
-            val centerYPx = heightPx + blockSizePx / 2f
-            val rowCenter = kotlin.math.floor(centerYPx / tileSizePx).toInt()
-
-            var targetCol = colCenter
-            var targetRow = rowCenter
-            when (lastDirection) {
-                Direction.Left -> targetCol = colCenter - 1
-                Direction.Right -> targetCol = colCenter + 1
-                Direction.Up -> targetRow = rowCenter + 1
-                Direction.Down -> targetRow = rowCenter - 1
+            if (isHostSelected == false) {
+                mp?.sendInput(left = false, right = false, jump = false, hit = false, place = true)
+                return
             }
-            // Ensure Y in bounds; X wraps in TileMap
-            if (!tileMap.inY(targetRow)) return
-
-            // Do not place where the player currently occupies
-            val playerCols = playerOverlappingColumns(xPx)
-            val playerRows = playerOverlappingRows(heightPx)
-            if (targetCol in playerCols && targetRow in playerRows) return
-
-            // Only place if empty
-            if (tileMap.get(targetCol, targetRow)) return
-
-            // Place block with full health
-            tileMap.set(targetCol, targetRow, true)
-            mapVersion++
-
-            // Sync to client if hosting
-            if (isHostSelected == true) {
-                mp?.sendTilePlaced(((targetCol % tileMap.width) + tileMap.width) % tileMap.width, targetRow)
-            }
+            performPlaceAt(playerWorldXDp, heightPx, lastDirection)
         }
 
         // Jump and vertical physics with tile collisions
@@ -587,10 +713,10 @@ fun GameScreen(
 
                     // Ceiling collision when ascending: sweep all crossed rows and clamp to the first tile bottom
                     if (v > 0f) {
-                        val prevTop = prevBottom + blockSizePx
-                        val nowTop = heightPx + blockSizePx
-                        val startRow = kotlin.math.floor(prevTop / tileSizePx).toInt()
-                        val endRow = kotlin.math.floor(nowTop / tileSizePx).toInt()
+                        val prevTop = prevBottom + playerHeightPx
+                        val nowTop = heightPx + playerHeightPx
+                        val startRow = kotlin.math.floor(prevTop / unitPx).toInt()
+                        val endRow = kotlin.math.floor(nowTop / unitPx).toInt()
                         if (endRow >= startRow) {
                             var hitRow: Int? = null
                             // Check every row boundary we crossed this frame (handles fast/tunneling motion)
@@ -602,44 +728,38 @@ fun GameScreen(
                                 if (hit) { hitRow = row; break }
                             }
                             if (hitRow != null) {
-                                val tileBottomPx = hitRow!! * tileSizePx
-                                heightPx = tileBottomPx - blockSizePx
+                                val tileBottomPx = hitRow!! * unitPx
+                                heightPx = tileBottomPx - playerHeightPx
                                 v = 0f
                             }
                         }
                         // Safety: if after integration our top is already inside a solid tile (e.g., block placed above), resolve
                         run {
-                            val topRowNow = kotlin.math.floor(((heightPx + blockSizePx - 0.001f) / tileSizePx)).toInt()
+                            val topRowNow = kotlin.math.floor(((heightPx + playerHeightPx - 0.001f) / unitPx)).toInt()
                             var overlap = false
                             for (c in cols) { if (tileMap.get(c, topRowNow)) { overlap = true; break } }
                             if (overlap) {
-                                val tileBottomPx = topRowNow * tileSizePx
-                                heightPx = tileBottomPx - blockSizePx
+                                val tileBottomPx = topRowNow * unitPx
+                                heightPx = tileBottomPx - playerHeightPx
                                 v = 0f
                             }
                         }
                     }
 
-                    // Landing when descending: player's bottom crosses tile top
+                    // Landing when descending: player's bottom crosses any tile top between prev and now
                     if (v <= 0f) {
-                        val prevRowBoundary = kotlin.math.floor(prevBottom / tileSizePx).toInt()
-                        val nowRowBoundary = kotlin.math.floor(heightPx / tileSizePx).toInt()
-                        if (nowRowBoundary < prevRowBoundary || heightPx <= 0f) {
-                            // Check all potential tile tops between prev and now (typically one row)
+                        val startRow = kotlin.math.floor((prevBottom - 0.001f) / unitPx).toInt()
+                        val endRow = kotlin.math.floor((heightPx) / unitPx).toInt()
+                        if (endRow < startRow || heightPx <= 0f) {
                             var landingTopPx: Float? = null
-                            // Include ground row 0 as valid landing top at 1*tileSizePx top
-                            // For each column, find highest solid tile top crossed
-                            for (c in cols) {
-                                val r = kotlin.math.floor((prevBottom - 0.001f) / tileSizePx).toInt()
-                                // Check current row under player and below
-                                val candidateRows = listOf(r, r - 1, 0).distinct()
-                                for (row in candidateRows) {
-                                    if (row < 0) continue
-                                    if (tileMap.get(c, row)) {
-                                        val topPx = (row + 1) * tileSizePx
-                                        if (prevBottom >= topPx && heightPx <= topPx) {
-                                            landingTopPx = kotlin.math.max(landingTopPx ?: Float.NEGATIVE_INFINITY, topPx)
-                                        }
+                            // Sweep all crossed row tops and find the highest top we intersected
+                            for (row in startRow downTo kotlin.math.max(endRow, 0)) {
+                                var hit = false
+                                for (c in cols) { if (tileMap.get(c, row)) { hit = true; break } }
+                                if (hit) {
+                                    val topPx = (row + 1) * unitPx
+                                    if (prevBottom >= topPx && heightPx <= topPx) {
+                                        landingTopPx = kotlin.math.max(landingTopPx ?: Float.NEGATIVE_INFINITY, topPx)
                                     }
                                 }
                             }
@@ -664,26 +784,36 @@ fun GameScreen(
         // Attach gameplay listener to existing multiplayer session
         LaunchedEffect(mp, isHostSelected) {
             mp?.updateListener(object : MultiplayerManager.Listener {
-                override fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean) {
+                override fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean) {
                     if (isHostSelected == true) {
-                        // Apply rudimentary movement to peer on host
-                        if (left) {
-                            val tentative = peerWorldXDp - step
-                            peerWorldXDp = applyHorizontalCollision(peerWorldXDp, tentative, peerHeightPx)
-                            peerFacingRight = false
+                        // Do not move peer immediately here; position is authoritative via POS messages.
+                        // Only update facing intent for visual orientation.
+                        if (left) peerFacingRight = false
+                        if (right) peerFacingRight = true
+                        // Perform actions host-authoritatively at peer's current (smoothed) position
+                        if (hit) {
+                            val facing = if (left) Direction.Left else if (right) Direction.Right else if (peerFacingRight) Direction.Right else Direction.Left
+                            performHitAt(peerWorldXDp, peerHeightPx, facing)
                         }
-                        if (right) {
-                            val tentative = peerWorldXDp + step
-                            peerWorldXDp = applyHorizontalCollision(peerWorldXDp, tentative, peerHeightPx)
-                            peerFacingRight = true
+                        if (place) {
+                            val facing = if (left) Direction.Left else if (right) Direction.Right else if (peerFacingRight) Direction.Right else Direction.Left
+                            performPlaceAt(peerWorldXDp, peerHeightPx, facing)
                         }
-                        // ignore jump/hit here; host is authoritative for world changes
+                        // Jump is handled via physics sync; no action here.
                     }
                 }
-                override fun onPeerPos(xDp: Float, heightPx: Float) {
-                    // Update remote player's position regardless of our role
-                    peerWorldXDp = with(density) { xDp.dp }
-                    peerHeightPx = heightPx
+                override fun onPeerPos(col: Int, row: Int, facingRight: Boolean) {
+                    // Update target grid coords for smoothing loop
+                    peerTargetXPx = col * unitPx
+                    peerTargetHeightPx = row * unitPx
+                    if (!peerHasPos) {
+                        // First position: snap immediately to avoid long glide from (0,0)
+                        peerWorldXPx = peerTargetXPx
+                        peerHeightPx = peerTargetHeightPx
+                        peerWorldXDp = pxToDp(peerWorldXPx)
+                        peerHasPos = true
+                    }
+                    peerFacingRight = facingRight
                 }
                 override fun onTileDestroyed(x: Int, y: Int) {
                     if (isHostSelected == false) {
@@ -721,10 +851,15 @@ fun GameScreen(
         }
 
         // Periodically send our position to the peer (both host and client)
-        LaunchedEffect(connectionStatus, isHostSelected, playerWorldXDp, heightPx) {
+        LaunchedEffect(connectionStatus, isHostSelected, playerWorldXDp, heightPx, lastDirection) {
             if (connectionStatus) {
-                // fire-and-forget current position
-                mp?.sendPos(playerWorldXDp.value, heightPx)
+                // Send our grid-based position (col,row) and facing to avoid dp/px inconsistencies
+                val xPx = xDpToPx(playerWorldXDp)
+                val col = kotlin.math.floor(xPx / unitPx).toInt()
+                val row = kotlin.math.floor((heightPx) / unitPx).toInt()
+                val wrappedCol = ((col % tileMap.width) + tileMap.width) % tileMap.width
+                val facingRightFlag = (lastDirection == Direction.Right)
+                mp?.sendPos(wrappedCol, row, facingRightFlag)
             }
         }
 
@@ -773,22 +908,25 @@ fun GameScreen(
                 val _mv = mapVersion
                 // Render visible tiles with horizontal wrapping
                 val viewportWidthPx = xDpToPx(screenWidth)
-                val firstCol = kotlin.math.floor(cameraOffsetXPx / tileSizePx).toInt()
-                val colsOnScreen = kotlin.math.ceil(viewportWidthPx / tileSizePx).toInt() + 2
-                for (k in firstCol until firstCol + colsOnScreen) {
-                    val mapCol = ((k % tileMap.width) + tileMap.width) % tileMap.width
-                    val xDp = pxToDp(k * tileSizePx - cameraOffsetXPx)
-                    for (row in 0 until tileMap.height) {
-                        if (tileMap.get(mapCol, row)) {
-                            // Compute color saturation based on health percentage
-                            val hp = tileMap.getHealth(mapCol, row)
-                            val ratio = if (hp > 0) hp.toFloat() / tileMap.maxHealth.toFloat() else 0f
-                            val blockColor = Color.hsl(120f, ratio.coerceIn(0f, 1f), 0.42f)
+                // Draw blocks with horizontal wrapping copies so blocks before index 0 are visible to the left
+                val blocksSnapshot = tileMap.snapshotBlocks()
+                val worldWidthPx = tileMap.width * unitPx
+                for (b in blocksSnapshot) {
+                    val hpRatio = if (b.maxHealth > 0) b.health.toFloat() / b.maxHealth.toFloat() else 0f
+                    val blockColor = Color.hsl(120f, hpRatio.coerceIn(0f, 1f), 0.42f)
+                    val baseLeftPx = (b.col * unitPx) - cameraOffsetXPx
+                    val blockWidthPx = b.w * unitPx
+                    val candidates = floatArrayOf(baseLeftPx, baseLeftPx - worldWidthPx, baseLeftPx + worldWidthPx)
+                    val blockBottomDp = pxToDp(b.row * unitPx)
+                    for (leftPx in candidates) {
+                        val rightPx = leftPx + blockWidthPx
+                        // Only draw if it intersects the viewport horizontally
+                        if (rightPx >= 0f && leftPx <= viewportWidthPx) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
-                                    .offset(x = xDp, y = -pxToDp(row * tileSizePx))
-                                    .size(tileSize)
+                                    .offset(x = pxToDp(leftPx), y = -blockBottomDp)
+                                    .size(width = UNIT * b.w, height = UNIT * b.h)
                                     .background(blockColor)
                             )
                         }
@@ -808,7 +946,7 @@ fun GameScreen(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .offset(x = centerX, y = -heightDp)
-                        .size(blockSize)
+                        .height(playerHeight)
                         .graphicsLayer { scaleX = if (faceRight) -1f else 1f }
                 )
 
@@ -828,9 +966,35 @@ fun GameScreen(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .offset(x = peerX, y = -peerHeightDp)
-                            .size(blockSize)
+                            .height(playerHeight)
                             .graphicsLayer { scaleX = if (peerFacingRight) -1f else 1f }
                     )
+                }
+            }
+
+            // Smoothly interpolate remote player's movement to avoid jumpy motion
+            LaunchedEffect(connectionStatus, unitPx) {
+                while (connectionStatus) {
+                    val worldWidthPxF = tileMap.width * unitPx
+                    // Adjust target across wrap so we move the short way
+                    fun adjustTarget(current: Float, target: Float): Float {
+                        var t = target
+                        var d = t - current
+                        if (kotlin.math.abs(d) > worldWidthPxF / 2f) {
+                            t += if (d > 0f) -worldWidthPxF else worldWidthPxF
+                        }
+                        return t
+                    }
+                    val adjTargetX = adjustTarget(peerWorldXPx, peerTargetXPx)
+                    val adjTargetY = peerTargetHeightPx
+                    val alpha = 0.25f // smoothing factor (0..1), higher = snappier
+                    peerWorldXPx += (adjTargetX - peerWorldXPx) * alpha
+                    peerHeightPx += (adjTargetY - peerHeightPx) * alpha
+                    // Normalize wrap and expose dp for rendering
+                    val worldWidthPx = tileMap.width * unitPx
+                    peerWorldXPx = ((peerWorldXPx % worldWidthPx) + worldWidthPx) % worldWidthPx
+                    peerWorldXDp = pxToDp(peerWorldXPx)
+                    kotlinx.coroutines.delay(16L)
                 }
             }
 
@@ -842,9 +1006,9 @@ fun GameScreen(
                     val supportedTopPxCandidates = mutableListOf<Float>()
                     for (c in cols) {
                         // Support exists if there is a solid tile directly under the player's bottom
-                        val rowUnder = kotlin.math.floor((heightPx - 0.001f) / tileSizePx).toInt()
+                        val rowUnder = kotlin.math.floor((heightPx - 0.001f) / unitPx).toInt()
                         if (rowUnder >= 0 && tileMap.get(c, rowUnder)) {
-                            supportedTopPxCandidates += (rowUnder + 1) * tileSizePx
+                            supportedTopPxCandidates += (rowUnder + 1) * unitPx
                         } else if (heightPx == 0f) {
                             supportedTopPxCandidates += 0f
                         }
@@ -864,16 +1028,15 @@ fun GameScreen(
 
                                 val landingCols = playerOverlappingColumns(xPx)
                                 var landingTopPx: Float? = null
-                                for (c in landingCols) {
-                                    val r = kotlin.math.floor((prevBottom - 0.001f) / tileSizePx).toInt()
-                                    val candidateRows = listOf(r, r - 1, 0).distinct()
-                                    for (row in candidateRows) {
-                                        if (row < 0) continue
-                                        if (tileMap.get(c, row)) {
-                                            val topPx = (row + 1) * tileSizePx
-                                            if (prevBottom >= topPx && heightPx <= topPx) {
-                                                landingTopPx = kotlin.math.max(landingTopPx ?: Float.NEGATIVE_INFINITY, topPx)
-                                            }
+                                val startRow = kotlin.math.floor((prevBottom - 0.001f) / unitPx).toInt()
+                                val endRow = kotlin.math.floor((heightPx) / unitPx).toInt()
+                                for (row in startRow downTo kotlin.math.max(endRow, 0)) {
+                                    var hit = false
+                                    for (c in landingCols) { if (tileMap.get(c, row)) { hit = true; break } }
+                                    if (hit) {
+                                        val topPx = (row + 1) * unitPx
+                                        if (prevBottom >= topPx && heightPx <= topPx) {
+                                            landingTopPx = kotlin.math.max(landingTopPx ?: Float.NEGATIVE_INFINITY, topPx)
                                         }
                                     }
                                 }
