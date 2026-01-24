@@ -38,11 +38,29 @@ class MultiplayerManager(
     @Volatile
     private var listener: Listener = initialListener
 
-    // Cache last-known peer state so late listeners (e.g., when switching screens) can immediately reflect it
-    @Volatile private var lastPeerSelectedName: String? = null
-    @Volatile private var lastPeerCol: Int? = null
-    @Volatile private var lastPeerRow: Int? = null
-    @Volatile private var lastPeerFacingRight: Boolean? = null
+    // Multi-peer support
+    data class PeerState(
+        var name: String? = null,
+        var col: Int? = null,
+        var row: Int? = null,
+        var facingRight: Boolean? = null
+    )
+
+    // Server side: track many clients
+    private val socketToId = mutableMapOf<WebSocket, Int>()
+    private val idToSocket = mutableMapOf<Int, WebSocket>()
+    private val peers = mutableMapOf<Int, PeerState>()
+    private var nextPeerId = 1 // Host uses id 0
+
+    // Client side: cache the last known state of all peers as told by host (for late UI listeners)
+    private val clientPeerCache = mutableMapOf<Int, PeerState>()
+
+    // Cache host (self) state for late-join synchronization when hosting
+    @Volatile private var selfId: Int = if (isHost) 0 else -1
+    @Volatile private var lastSelfName: String? = null
+    @Volatile private var lastSelfCol: Int? = null
+    @Volatile private var lastSelfRow: Int? = null
+    @Volatile private var lastSelfFacingRight: Boolean? = null
 
     fun updateListener(newListener: Listener) {
         this.listener = newListener
@@ -50,42 +68,60 @@ class MultiplayerManager(
         try {
             newListener.onConnectionChanged(connected.get())
         } catch (_: Exception) {}
-        // Replay cached peer identity and position if available
+        // Replay cached known peers (for UI that attaches late)
         try {
-            lastPeerSelectedName?.let { newListener.onPeerSelectedPlayer(it) }
-        } catch (_: Exception) {}
-        try {
-            val col = lastPeerCol
-            val row = lastPeerRow
-            val fr = lastPeerFacingRight
-            if (col != null && row != null && fr != null) {
-                newListener.onPeerPos(col, row, fr)
+            // Server-side cache (host tracking many clients)
+            peers.forEach { (id, ps) ->
+                ps.name?.let { newListener.onPeerSelectedPlayer(id, it) }
+                val c = ps.col; val r = ps.row; val fr = ps.facingRight
+                if (c != null && r != null && fr != null) newListener.onPeerPos(id, c, r, fr)
+            }
+            // Host self state (id 0) to newly attached listeners
+            if (isHost) {
+                val c = lastSelfCol; val r = lastSelfRow; val fr = lastSelfFacingRight
+                lastSelfName?.let { newListener.onPeerSelectedPlayer(0, it) }
+                if (c != null && r != null && fr != null) newListener.onPeerPos(0, c, r, fr)
+            }
+            // Client-side cache (messages received from host about any peer, including host id 0)
+            clientPeerCache.forEach { (id, ps) ->
+                ps.name?.let { newListener.onPeerSelectedPlayer(id, it) }
+                val c = ps.col; val r = ps.row; val fr = ps.facingRight
+                if (c != null && r != null && fr != null) newListener.onPeerPos(id, c, r, fr)
             }
         } catch (_: Exception) {}
     }
     interface Listener {
-        fun onPeerInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean) {}
-        fun onPeerPos(col: Int, row: Int, facingRight: Boolean) {}
+        fun onPeerInput(id: Int, left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean) {}
+        fun onPeerPos(id: Int, col: Int, row: Int, facingRight: Boolean) {}
         fun onTileDestroyed(x: Int, y: Int) {}
         fun onTilePlaced(x: Int, y: Int) {}
         fun onTileHealth(x: Int, y: Int, health: Int) {}
-        fun onPeerSelectedPlayer(name: String) {}
+        fun onPeerSelectedPlayer(id: Int, name: String) {}
+        fun onPeerConnected(id: Int) {}
+        fun onPeerDisconnected(id: Int) {}
         fun onConnectionChanged(connected: Boolean) {}
     }
 
     private var server: WebSocketServer? = null
-    private var serverClientSocket: WebSocket? = null
+    private val serverClientSockets = mutableSetOf<WebSocket>()
     private var client: WebSocketClient? = null
 
     private val connected = AtomicBoolean(false)
+    private val reconnecting = AtomicBoolean(false)
+    @Volatile private var shouldKeepTrying = true
 
     fun start() {
         if (isHost) startServer() else startClient()
     }
 
     fun stop() {
+        shouldKeepTrying = false
         try {
-            serverClientSocket?.close(CloseFrame.NORMAL)
+            serverClientSockets.forEach { it.close(CloseFrame.NORMAL) }
+            serverClientSockets.clear()
+            idToSocket.clear()
+            socketToId.clear()
+            peers.clear()
         } catch (_: Exception) {}
         try {
             client?.close()
@@ -97,14 +133,31 @@ class MultiplayerManager(
         listener.onConnectionChanged(false)
     }
 
-    // Client -> Host messages
+    // Client -> Host messages (host also uses these to inform clients of host state)
     fun sendInput(left: Boolean, right: Boolean, jump: Boolean, hit: Boolean, place: Boolean = false) {
         val msg = "INPUT|${b(left)}|${b(right)}|${b(jump)}|${b(hit)}|${b(place)}"
         send(msg)
     }
 
+    // Internal de-duplication for POS messages to avoid unnecessary network traffic
+    @Volatile private var lastSentPosCol: Int? = null
+    @Volatile private var lastSentPosRow: Int? = null
+    @Volatile private var lastSentPosFacingRight: Boolean? = null
+
     fun sendPos(col: Int, row: Int, facingRight: Boolean) {
-        val msg = "POS|$col|$row|${b(facingRight)}"
+        val changed = (lastSentPosCol != col) || (lastSentPosRow != row) || (lastSentPosFacingRight != facingRight)
+        // Always update caches so late-join replay stays accurate
+        if (isHost) {
+            lastSelfCol = col; lastSelfRow = row; lastSelfFacingRight = facingRight
+        }
+        lastSentPosCol = col
+        lastSentPosRow = row
+        lastSentPosFacingRight = facingRight
+        if (!changed) {
+            // Skip sending duplicate POS with no effective change (same grid and facing)
+            return
+        }
+        val msg = if (isHost) "POS|0|$col|$row|${b(facingRight)}" else "POS|$col|$row|${b(facingRight)}"
         send(msg)
     }
 
@@ -129,18 +182,22 @@ class MultiplayerManager(
 
     // Both directions: notify selected character
     fun sendSelectedPlayer(name: String) {
-        val msg = "CHAR|$name"
-        send(msg)
+        if (isHost) {
+            lastSelfName = name
+            send("CHAR|0|$name")
+        } else {
+            send("CHAR|$name")
+        }
     }
 
     private fun send(msg: String) {
         try {
             if (isHost) {
-                if (serverClientSocket == null) {
-                    Log.w(TAG, "send skipped (host): no client socket. msg=\"$msg\"")
+                if (serverClientSockets.isEmpty()) {
+                    Log.w(TAG, "send skipped (host): no clients. msg=\"$msg\"")
                 } else {
-                    Log.d(TAG, "send (host->client): \"$msg\"")
-                    serverClientSocket?.send(msg)
+                    Log.d(TAG, "broadcast (host->clients): \"$msg\"")
+                    serverClientSockets.forEach { s -> runCatching { s.send(msg) } }
                 }
             } else {
                 if (client == null) {
@@ -163,21 +220,51 @@ class MultiplayerManager(
             }
             override fun onOpen(conn: WebSocket, handshake: ClientHandshake?) {
                 Log.i(TAG, "Client connected: ${conn.remoteSocketAddress}")
-                serverClientSocket = conn
+                serverClientSockets.add(conn)
+                // Assign a new peer ID
+                val id = nextPeerId++
+                socketToId[conn] = id
+                idToSocket[id] = conn
+                peers[id] = PeerState()
+                // Notify listener
+                listener.onPeerConnected(id)
+                // Ensure server marked as connected
                 connected.set(true)
                 listener.onConnectionChanged(true)
-                Log.d(TAG, "send (server greeting): \"HELLO|host\"")
-                conn.send("HELLO|host")
+                // Welcome this client with its assigned ID
+                conn.send("WELCOME|$id")
+                // Replay known states (including host as id 0) to the newcomer
+                if (lastSelfName != null) conn.send("CHAR|0|${lastSelfName}")
+                if (lastSelfCol != null && lastSelfRow != null && lastSelfFacingRight != null) {
+                    conn.send("POS|0|${lastSelfCol}|${lastSelfRow}|${b(lastSelfFacingRight!!)}")
+                }
+                peers.forEach { (pid, ps) ->
+                    if (pid != id) {
+                        ps.name?.let { conn.send("CHAR|$pid|$it") }
+                        val c = ps.col; val r = ps.row; val fr = ps.facingRight
+                        if (c != null && r != null && fr != null) conn.send("POS|$pid|$c|$r|${b(fr)}")
+                    }
+                }
             }
             override fun onClose(conn: WebSocket, code: Int, reason: String?, remote: Boolean) {
                 Log.i(TAG, "Client disconnected: code=$code reason=$reason remote=$remote")
-                if (serverClientSocket == conn) serverClientSocket = null
-                connected.set(false)
-                listener.onConnectionChanged(false)
+                serverClientSockets.remove(conn)
+                val id = socketToId.remove(conn)
+                if (id != null) {
+                    idToSocket.remove(id)
+                    peers.remove(id)
+                    listener.onPeerDisconnected(id)
+                    // Inform remaining clients
+                    send("BYE|$id")
+                }
+                if (serverClientSockets.isEmpty()) {
+                    connected.set(false)
+                    listener.onConnectionChanged(false)
+                }
             }
             override fun onMessage(conn: WebSocket, message: String) {
                 Log.d(TAG, "recv (server) from ${conn.remoteSocketAddress}: \"$message\"")
-                handleMessage(message)
+                handleMessageServer(message, conn)
             }
             override fun onError(conn: WebSocket?, ex: Exception) {
                 Log.w(TAG, "Server error: ${ex.message}")
@@ -196,6 +283,7 @@ class MultiplayerManager(
             override fun onOpen(handshakedata: ServerHandshake?) {
                 Log.i(TAG, "Client connected to $uri")
                 connected.set(true)
+                reconnecting.set(false)
                 listener.onConnectionChanged(true)
                 send("HELLO|client")
             }
@@ -207,9 +295,12 @@ class MultiplayerManager(
                 Log.i(TAG, "Client closed: code=$code reason=$reason remote=$remote")
                 connected.set(false)
                 listener.onConnectionChanged(false)
+                // Auto-reconnect with backoff
+                if (shouldKeepTrying) scheduleReconnect()
             }
             override fun onError(ex: Exception) {
                 Log.w(TAG, "Client error: ${ex.message}")
+                if (!connected.get() && shouldKeepTrying) scheduleReconnect()
             }
         }.apply {
             // Enable keep-alive pings and connection watchdog to prevent idle closes through NATs
@@ -219,14 +310,38 @@ class MultiplayerManager(
         client?.connect()
     }
 
-    private fun handleMessage(message: String) {
-        // Very small parser for our pipe-delimited protocol
-        Log.d(TAG, "handleMessage: raw=\"$message\"")
+    @Synchronized
+    private fun scheduleReconnect() {
+        if (isHost) return
+        if (reconnecting.get()) return
+        reconnecting.set(true)
+        Thread({
+            var attempt = 0
+            while (!connected.get() && shouldKeepTrying && !isHost) {
+                val base = 1000L
+                val max = 15000L
+                val delay = kotlin.math.min(max, base * (1 shl kotlin.math.min(attempt, 4)))
+                try {
+                    Thread.sleep(delay)
+                } catch (_: InterruptedException) {}
+                if (connected.get() || !shouldKeepTrying) break
+                try {
+                    // Try to reconnect by creating a new client
+                    startClient()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Reconnect attempt failed: ${e.message}")
+                }
+                attempt++
+            }
+            reconnecting.set(false)
+        }, "WS-Reconnect").start()
+    }
+
+    // Host-side handler (messages from a specific client connection)
+    private fun handleMessageServer(message: String, conn: WebSocket) {
         val parts = message.split('|')
-        if (parts.isEmpty()) {
-            Log.w(TAG, "handleMessage: empty parts for message")
-            return
-        }
+        if (parts.isEmpty()) return
+        val id = socketToId[conn] ?: return
         when (parts[0]) {
             "INPUT" -> if (parts.size >= 5) {
                 val l = parts[1] == "1"
@@ -234,81 +349,103 @@ class MultiplayerManager(
                 val j = parts[3] == "1"
                 val h = parts[4] == "1"
                 val p = if (parts.size >= 6) parts[5] == "1" else false
-                Log.d(TAG, "parsed INPUT l=$l r=$r j=$j h=$h p=$p")
-                listener.onPeerInput(l, r, j, h, p)
-            } else {
-                Log.w(TAG, "malformed INPUT: ${parts.joinToString("|")}")
+                listener.onPeerInput(id, l, r, j, h, p)
             }
-            "POS" -> if (parts.size >= 3) {
-                val col = parts[1].toIntOrNull()
-                val row = parts[2].toIntOrNull()
-                val fr = if (parts.size >= 4) parts[3] == "1" else true
-                if (col == null || row == null) {
-                    Log.w(TAG, "malformed POS: ${parts.joinToString("|")}")
-                    return
+            "POS" -> {
+                // client -> host: POS|col|row|f
+                if (parts.size >= 3) {
+                    val col = parts[1].toIntOrNull() ?: return
+                    val row = parts[2].toIntOrNull() ?: return
+                    val fr = if (parts.size >= 4) parts[3] == "1" else true
+                    val ps = peers[id] ?: PeerState().also { peers[id] = it }
+                    ps.col = col; ps.row = row; ps.facingRight = fr
+                    // Broadcast to all clients with the sender id
+                    send("POS|$id|$col|$row|${b(fr)}")
+                    listener.onPeerPos(id, col, row, fr)
                 }
-                Log.d(TAG, "parsed POS col=$col row=$row fr=$fr")
-                // Cache last-known peer position/facing for late listeners
-                lastPeerCol = col
-                lastPeerRow = row
-                lastPeerFacingRight = fr
-                listener.onPeerPos(col, row, fr)
-            } else {
-                Log.w(TAG, "malformed POS: ${parts.joinToString("|")}")
+            }
+            "CHAR" -> if (parts.size >= 2) {
+                val name = parts[1]
+                val ps = peers[id] ?: PeerState().also { peers[id] = it }
+                ps.name = name
+                send("CHAR|$id|$name")
+                listener.onPeerSelectedPlayer(id, name)
+            }
+        }
+    }
+
+    // Client-side handler (messages from host)
+    private fun handleMessage(message: String) {
+        Log.d(TAG, "handleMessage: raw=\"$message\"")
+        val parts = message.split('|')
+        if (parts.isEmpty()) return
+        when (parts[0]) {
+            "WELCOME" -> if (parts.size >= 2) {
+                selfId = parts[1].toIntOrNull() ?: selfId
+            }
+            "BYE" -> if (parts.size >= 2) {
+                val id = parts[1].toIntOrNull() ?: return
+                listener.onPeerDisconnected(id)
+            }
+            "POS" -> {
+                // host->clients: POS|id|col|row|f
+                if (parts.size >= 5) {
+                    val id = parts[1].toIntOrNull() ?: return
+                    val col = parts[2].toIntOrNull() ?: return
+                    val row = parts[3].toIntOrNull() ?: return
+                    val fr = parts[4] == "1"
+                    // Cache for late listeners on client side
+                    val ps = clientPeerCache[id] ?: PeerState().also { clientPeerCache[id] = it }
+                    ps.col = col; ps.row = row; ps.facingRight = fr
+                    listener.onPeerPos(id, col, row, fr)
+                } else if (parts.size >= 3) {
+                    // backward compatibility (no id)
+                    val col = parts[1].toIntOrNull() ?: return
+                    val row = parts[2].toIntOrNull() ?: return
+                    val fr = if (parts.size >= 4) parts[3] == "1" else true
+                    val ps = clientPeerCache[0] ?: PeerState().also { clientPeerCache[0] = it }
+                    ps.col = col; ps.row = row; ps.facingRight = fr
+                    listener.onPeerPos(0, col, row, fr)
+                }
             }
             "TILE" -> if (parts.size >= 4) {
                 val action = parts[1]
                 when (action) {
                     "destroy", "place" -> {
-                        val x = parts.getOrNull(2)?.toIntOrNull()
-                        val y = parts.getOrNull(3)?.toIntOrNull()
-                        if (x == null || y == null) {
-                            Log.w(TAG, "malformed TILE: ${parts.joinToString("|")}")
-                            return
-                        }
-                        when (action) {
-                            "destroy" -> {
-                                Log.d(TAG, "parsed TILE destroy x=$x y=$y")
-                                listener.onTileDestroyed(x, y)
-                            }
-                            "place" -> {
-                                Log.d(TAG, "parsed TILE place x=$x y=$y")
-                                listener.onTilePlaced(x, y)
-                            }
-                        }
+                        val x = parts.getOrNull(2)?.toIntOrNull() ?: return
+                        val y = parts.getOrNull(3)?.toIntOrNull() ?: return
+                        if (action == "destroy") listener.onTileDestroyed(x, y) else listener.onTilePlaced(x, y)
                     }
                     "hp" -> {
-                        val x = parts.getOrNull(2)?.toIntOrNull()
-                        val y = parts.getOrNull(3)?.toIntOrNull()
-                        val hp = parts.getOrNull(4)?.toIntOrNull()
-                        if (x == null || y == null || hp == null) {
-                            Log.w(TAG, "malformed TILE hp: ${parts.joinToString("|")}")
-                            return
-                        }
-                        Log.d(TAG, "parsed TILE hp x=$x y=$y hp=$hp")
+                        val x = parts.getOrNull(2)?.toIntOrNull() ?: return
+                        val y = parts.getOrNull(3)?.toIntOrNull() ?: return
+                        val hp = parts.getOrNull(4)?.toIntOrNull() ?: return
                         listener.onTileHealth(x, y, hp)
                     }
-                    else -> Log.w(TAG, "unknown TILE action '$action': ${parts.joinToString("|")}")
                 }
-            } else {
-                Log.w(TAG, "unknown or malformed TILE: ${parts.joinToString("|")}")
             }
-            "CHAR" -> if (parts.size >= 2) {
-                val name = parts[1]
-                Log.d(TAG, "parsed CHAR name=$name")
-                // Cache last-known peer character for late listeners
-                lastPeerSelectedName = name
-                listener.onPeerSelectedPlayer(name)
-            } else {
-                Log.w(TAG, "malformed CHAR: ${parts.joinToString("|")}")
-            }
-            else -> {
-                Log.w(TAG, "unknown message type: ${parts[0]} raw=\"${message}\"")
+            "CHAR" -> {
+                // host->clients: CHAR|id|name (or legacy CHAR|name)
+                if (parts.size >= 3) {
+                    val id = parts[1].toIntOrNull() ?: return
+                    val name = parts[2]
+                    // Cache for late listeners on client side
+                    val ps = clientPeerCache[id] ?: PeerState().also { clientPeerCache[id] = it }
+                    ps.name = name
+                    listener.onPeerSelectedPlayer(id, name)
+                } else if (parts.size >= 2) {
+                    val name = parts[1]
+                    val ps = clientPeerCache[0] ?: PeerState().also { clientPeerCache[0] = it }
+                    ps.name = name
+                    listener.onPeerSelectedPlayer(0, name)
+                }
             }
         }
     }
 
     private fun b(v: Boolean) = if (v) "1" else "0"
+
+    fun getSelfId(): Int = selfId
 
     companion object {
         const val TAG = "Multiplayer"

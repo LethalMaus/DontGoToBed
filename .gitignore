@@ -21,3 +21,4 @@ local.properties
 /.idea/deploymentTargetSelector.xml
 /.idea/other.xml
 /.idea
+/app/google-services.json
