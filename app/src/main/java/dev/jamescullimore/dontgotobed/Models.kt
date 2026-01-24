@@ -59,6 +59,37 @@ data class Zombie(
     var inAttackRange: Boolean = false,
 )
 
+data class SkeletonArcher(
+    val id: Long = System.nanoTime(),
+    var worldXDp: Dp = 0.dp,
+    var worldXPx: Float = 0f,
+    var bottomPx: Float = 0f,
+    var facingRight: Boolean = true,
+    var hp: Int = 3,
+    var isAirborne: Boolean = false,
+    var vY: Float = 0f,
+    var state: NpcState = NpcState.Idle,
+    var pauseUntil: Long = 0L,
+    var flashUntil: Long = 0L,
+    var lastShotTime: Long = 0L,
+    var isAiming: Boolean = false,
+    var aimStartTime: Long = 0L,
+    var pulseAmount: Float = 0f,
+    var nextPatrolDecisionMs: Long = 0L,
+    var patrolStrideRemainingPx: Float = 0f
+)
+
+data class Arrow(
+    val id: Long = System.nanoTime(),
+    val ownerId: Long = 0L,
+    var worldXPx: Float,
+    var bottomPx: Float,
+    var vX: Float,
+    var vY: Float = 0f,
+    var distanceTravelled: Float = 0f,
+    var lastDropDistance: Float = 0f
+)
+
 // Remote peer model (networked players) extracted from GameScreen for reuse
 data class RemotePeer(
     var worldXPx: Float = 0f,
@@ -79,6 +110,12 @@ data class Notice(
 )
 
 data class Cell(val c: Int, val r: Int)
+
+data class Potion(
+    val id: Long = System.nanoTime(),
+    val col: Int,
+    val row: Int
+)
 
 data class Block(
     val id: Int,

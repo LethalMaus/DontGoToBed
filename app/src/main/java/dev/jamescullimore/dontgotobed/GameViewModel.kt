@@ -11,6 +11,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.floor
@@ -71,10 +72,20 @@ class GameViewModel(
     // -------------------- Zombies (moved from GameScreen) --------------------
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val zombieJobs = mutableMapOf<Long, Job>()
+    private val skeletonJobs = mutableMapOf<Long, Job>()
 
     // Backing state for UI collection
     private val _zombies = MutableStateFlow<List<Zombie>>(emptyList())
     val zombies = _zombies.asStateFlow()
+
+    private val _skeletons = MutableStateFlow<List<SkeletonArcher>>(emptyList())
+    val skeletons = _skeletons.asStateFlow()
+
+    private val _arrows = MutableStateFlow<List<Arrow>>(emptyList())
+    val arrows = _arrows.asStateFlow()
+
+    private val _potions = MutableStateFlow<List<Potion>>(emptyList())
+    val potions = _potions.asStateFlow()
 
     // Player hit events emitted by zombies (UI consumes to reduce HP/flash)
     private val _playerDamage = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 16)
@@ -185,8 +196,9 @@ class GameViewModel(
         // Baseline cap; actual speed is derived relative to the player's speed
         const val ZOMBIE_SPEED_TILES_PER_SEC = 0.25f     // fallback/base patrol speed (tiles/sec)
         // Make zombies ~150% faster than before; allow them to slightly exceed player speed during chase
-        const val ZOMBIE_RELATIVE_SPEED = 1.425f         // patrol speed relative to player (~0.95 * 1.5)
-        const val CHASE_RELATIVE_SPEED = 1.47f           // chase speed relative to player (~0.98 * 1.5)
+        const val ZOMBIE_RELATIVE_SPEED = 0.8f           // patrol speed relative to player
+        const val SKELETON_RELATIVE_SPEED = 1.0f         // skeleton speed relative to player
+        const val CHASE_RELATIVE_SPEED = 0.9f           // chase speed relative to player
         const val HORIZONTAL_CAP_TILES = 1.0f            // allow larger per-frame moves but keep a safety cap
         const val CHASE_RANGE_TILES = 2000f              // effectively unlimited horizontal trigger (capped by world wrap)
         const val CHASE_VERTICAL_TILES = 32f             // generous vertical tolerance
@@ -195,7 +207,7 @@ class GameViewModel(
         const val MIN_DT_SEC = 0.005f                    // 5 ms
         const val MAX_DT_SEC = 0.033f                    // 33 ms (avoid big jumps when app hiccups)
         // Attacks
-        const val ATTACK_COOLDOWN_MS = 900L
+        const val ATTACK_COOLDOWN_MS = 1500L
         const val ATTACK_DAMAGE = 1
         // Patrol / chase tuning
         const val PATROL_DECISION_MS_MIN = 1000L
@@ -205,48 +217,51 @@ class GameViewModel(
         const val CHASE_MEMORY_MS = 5000L
         const val LOS_ROW_PAD_CELLS = 1
         const val REACHABLE_LEDGE_MAX_HEIGHT_CELLS = 2
+        const val SKELETON_LOS_RANGE_UNITS = 24f
     }
 
     // --- AI helpers: wrap-aware line of sight and reachability ---
     private fun hasLineOfSight(
-        z: Zombie,
+        zXPx: Float,
+        zBottomPx: Float,
         tileMap: TileMap,
         unitPx: Float,
         widthPx: Float,
-        heightPx: Float
+        heightPx: Float,
+        maxDistPx: Float = Float.MAX_VALUE
     ): Boolean {
         val worldWidth = tileMap.width
         // Columns/rows covered by zombie and player AABBs (2×3 footprint)
-        val zCols = aabbOverlappingColumns(z.worldXPx, unitPx, widthPx)
-        val zRows = aabbOverlappingRows(z.bottomPx, unitPx, heightPx)
+        val zCols = aabbOverlappingColumns(zXPx, unitPx, widthPx)
+        val zRows = aabbOverlappingRows(zBottomPx, unitPx, heightPx)
         val pColsBase = aabbOverlappingColumns(playerWorldXPx, unitPx, widthPx)
         val pRows = aabbOverlappingRows(playerBottomPx, unitPx, heightPx)
 
-        // Vertical band (with small padding) where we test for blocking tiles.
-        // Skip the underfoot row so that ground tiles below both entities do not block LoS.
-        val baseRowMin = minOf(pRows.first, zRows.first) + 1
-        val rowMin = (baseRowMin - LOS_ROW_PAD_CELLS).coerceAtLeast(0)
-        val rowMax = (maxOf(pRows.last, zRows.last) + LOS_ROW_PAD_CELLS)
-        if (rowMin > rowMax) return false
-        val rows = rowMin..rowMax
-
         // Pick the player's wrapped image that is horizontally closest to the zombie
         fun rangeCenterX(cols: IntRange): Float = ((cols.first + cols.last) * 0.5f) * unitPx
-        val zCenterX = z.worldXPx + widthPx * 0.5f
+        val zCenterX = zXPx + widthPx * 0.5f
         var bestOffsetCols = 0
         run {
             val worldWidthPx = tileMap.width * unitPx
             val baseCenter = rangeCenterX(pColsBase)
-            var bestDist = kotlin.math.abs(baseCenter - zCenterX)
+            var bestDist = abs(baseCenter - zCenterX)
             var bestOff = 0
             for (off in intArrayOf(-worldWidth, 0, worldWidth)) {
                 val shifted = baseCenter + off * unitPx
-                val d = kotlin.math.abs(shifted - zCenterX)
+                val d = abs(shifted - zCenterX)
                 if (d < bestDist) { bestDist = d; bestOff = off }
             }
+            if (bestDist > maxDistPx) return false
             bestOffsetCols = bestOff
         }
         val pCols = (pColsBase.first + bestOffsetCols)..(pColsBase.last + bestOffsetCols)
+
+        // Vertical band where we test for blocking tiles.
+        // Start one row ABOVE the feet to skip the ground they stand on.
+        val rowMin = minOf(pRows.first, zRows.first) + 1
+        val rowMax = maxOf(pRows.last, zRows.last)
+        if (rowMin > rowMax) return false
+        val rows = rowMin..rowMax
 
         // Determine traversal direction across columns along the chosen (non-wrapping) path
         val goRight = pCols.first > zCols.last
@@ -266,6 +281,14 @@ class GameViewModel(
         }
         return true
     }
+
+    private fun hasLineOfSight(
+        z: Zombie,
+        tileMap: TileMap,
+        unitPx: Float,
+        widthPx: Float,
+        heightPx: Float
+    ): Boolean = hasLineOfSight(z.worldXPx, z.bottomPx, tileMap, unitPx, widthPx, heightPx, CHASE_RANGE_TILES * unitPx)
 
     private fun isPlayerReachable(
         z: Zombie,
@@ -342,24 +365,401 @@ class GameViewModel(
     }
 
     private fun addZombie(z: Zombie) {
-        _zombies.value = _zombies.value + z
+        _zombies.update { it + z }
     }
 
     private fun removeZombieById(id: Long) {
         zombieJobs.remove(id)?.cancel()
-        _zombies.value = _zombies.value.filterNot { it.id == id }
+        _zombies.update { list -> list.filterNot { it.id == id } }
     }
 
-    fun damageZombie(id: Long, amount: Int = 1) {
-        val list = _zombies.value.toMutableList()
-        val idx = list.indexOfFirst { it.id == id }
-        if (idx != -1) {
-            val z = list[idx]
-            z.hp = (z.hp - amount).coerceAtLeast(0)
-            z.flashUntil = System.currentTimeMillis() + 150L
-            list[idx] = z
-            _zombies.value = list
-            if (z.hp <= 0) removeZombieById(id)
+    fun spawnPotion(col: Int, row: Int) {
+        _potions.update { it + Potion(col = col, row = row) }
+    }
+
+    fun collectPotion(id: Long): Boolean {
+        var collected = false
+        _potions.update { current ->
+            val p = current.find { it.id == id }
+            if (p != null && addItemToInventory(ItemType.Potion, 1)) {
+                collected = true
+                current.filterNot { it.id == id }
+            } else {
+                current
+            }
+        }
+        return collected
+    }
+
+    fun damageZombie(id: Long, unitPx: Float, amount: Int = 1) {
+        _zombies.update { list ->
+            val newList = list.toMutableList()
+            val idx = newList.indexOfFirst { it.id == id }
+            if (idx != -1) {
+                val z = newList[idx]
+                if (z.hp > 0) {
+                    z.hp = (z.hp - amount).coerceAtLeast(0)
+                    z.flashUntil = System.currentTimeMillis() + 150L
+                    newList[idx] = z
+                    if (z.hp <= 0) {
+                        removeZombieById(id)
+                        spawnPotion(
+                            floor(z.worldXPx / unitPx).toInt(),
+                            floor(z.bottomPx / unitPx).toInt()
+                        )
+                        // The removal will be handled by removeZombieById which calls zombieJobs.remove(id)?.cancel()
+                        // and then filters _zombies.value. 
+                        // Wait, removeZombieById also updates _zombies.value!
+                        // This might cause another race!
+                    }
+                }
+            }
+            newList
+        }
+    }
+
+    private fun addSkeleton(s: SkeletonArcher) {
+        _skeletons.update { it + s }
+    }
+
+    private fun removeSkeletonById(id: Long) {
+        skeletonJobs.remove(id)?.cancel()
+        _skeletons.update { list -> list.filterNot { it.id == id } }
+    }
+
+    fun damageSkeleton(id: Long, unitPx: Float, amount: Int = 1) {
+        _skeletons.update { list ->
+            val newList = list.toMutableList()
+            val idx = newList.indexOfFirst { it.id == id }
+            if (idx != -1) {
+                val s = newList[idx]
+                if (s.hp > 0) {
+                    s.hp = (s.hp - amount).coerceAtLeast(0)
+                    s.flashUntil = System.currentTimeMillis() + 150L
+                    newList[idx] = s
+                    if (s.hp <= 0) {
+                        removeSkeletonById(id)
+                        spawnPotion(
+                            floor(s.worldXPx / unitPx).toInt(),
+                            floor(s.bottomPx / unitPx).toInt()
+                        )
+                    }
+                }
+            }
+            newList
+        }
+    }
+
+    private fun spawnArrow(x: Float, y: Float, targetX: Float, targetY: Float, unitPx: Float, worldWidthPx: Float, ownerId: Long = 0L) {
+        val wrappedX = ((x % worldWidthPx) + worldWidthPx) % worldWidthPx
+        val dx = targetX - wrappedX
+        // Handle wrap around for arrow direction
+        val adjustedDx = if (abs(dx) > worldWidthPx / 2f) {
+            if (dx > 0) dx - worldWidthPx else dx + worldWidthPx
+        } else dx
+
+        val dy = targetY - y
+        val mag = kotlin.math.sqrt(adjustedDx * adjustedDx + dy * dy)
+        val velocity = 30f * unitPx // 3 blocks per second
+        val vX = if (mag > 0) (adjustedDx / mag) * velocity else velocity
+        val vY = if (mag > 0) (dy / mag) * velocity else 0f
+
+        val arrow = Arrow(worldXPx = wrappedX, bottomPx = y, vX = vX, vY = vY, ownerId = ownerId)
+        _arrows.update { it + arrow }
+    }
+
+    private fun updateArrows(tileMap: TileMap, unitPx: Float, widthPx: Float, heightPx: Float, dt: Float) {
+        _arrows.update { currentArrows ->
+            val newList = currentArrows.toMutableList()
+            val arrowsToRemove = mutableListOf<Arrow>()
+            val worldWidthPx = tileMap.width * unitPx
+
+            for (i in newList.indices) {
+                val arrow = newList[i].copy()
+                arrow.worldXPx = ((arrow.worldXPx + arrow.vX * dt) % worldWidthPx + worldWidthPx) % worldWidthPx
+                arrow.bottomPx += arrow.vY * dt
+
+                val dist = kotlin.math.sqrt(arrow.vX * arrow.vX + arrow.vY * arrow.vY) * dt
+                arrow.distanceTravelled += dist
+
+                // Gravity: drop 1 block (unitPx) every 15 blocks travelled
+                if (arrow.distanceTravelled - arrow.lastDropDistance >= 15 * unitPx) {
+                    arrow.bottomPx -= unitPx
+                    arrow.lastDropDistance += 15 * unitPx
+                }
+
+                // Collision detection
+                val col = floor(arrow.worldXPx / unitPx).toInt()
+                val row = floor(arrow.bottomPx / unitPx).toInt()
+
+                var hit = false
+                // Hit block
+                if (tileMap.inY(row) && tileMap.get(col, row)) {
+                    tileMap.damage(col, row, 1)
+                    hit = true
+                }
+
+                // Hit player
+                if (!hit) {
+                    val pCols = aabbOverlappingColumns(playerWorldXPx, unitPx, widthPx)
+                    val pRows = aabbOverlappingRows(playerBottomPx, unitPx, heightPx)
+                    if (col in pCols && row in pRows) {
+                        _playerDamage.tryEmit(1)
+                        hit = true
+                    }
+                }
+
+                // Hit Zombie
+                if (!hit) {
+                    val zList = _zombies.value
+                    for (z in zList) {
+                        val zCols = aabbOverlappingColumns(z.worldXPx, unitPx, widthPx)
+                        val zRows = aabbOverlappingRows(z.bottomPx, unitPx, heightPx)
+                        if (col in zCols && row in zRows) {
+                            damageZombie(z.id, unitPx, 1)
+                            hit = true
+                            break
+                        }
+                    }
+                }
+
+                // Hit Skeleton
+                if (!hit) {
+                    val sList = _skeletons.value
+                    for (s in sList) {
+                        if (s.id == arrow.ownerId) continue
+                        val sCols = aabbOverlappingColumns(s.worldXPx, unitPx, widthPx)
+                        val sRows = aabbOverlappingRows(s.bottomPx, unitPx, heightPx)
+                        if (col in sCols && row in sRows) {
+                            damageSkeleton(s.id, unitPx, 1)
+                            hit = true
+                            break
+                        }
+                    }
+                }
+
+                // Remove arrow if it hit something or went out of bounds (Y)
+                if (hit || !tileMap.inY(row)) {
+                    arrowsToRemove.add(newList[i])
+                } else {
+                    newList[i] = arrow
+                }
+            }
+            newList.filter { it !in arrowsToRemove }
+        }
+    }
+
+    private fun startSkeletonArcherJob(
+        id: Long,
+        tileMap: TileMap,
+        unitPx: Float,
+        playerWidthPx: Float,
+        playerHeightPx: Float,
+        pxToDp: (Float) -> androidx.compose.ui.unit.Dp
+    ) {
+        if (skeletonJobs.containsKey(id)) return
+        val job = scope.launch {
+            val rng = java.util.Random()
+            var local: SkeletonArcher? = _skeletons.value.firstOrNull { it.id == id }
+            var vY = 0f
+            var lastTimeNs = System.nanoTime()
+            val frameMs = 16L
+
+            while (local != null) {
+                val nowMs = System.currentTimeMillis()
+                val nowNs = System.nanoTime()
+                var dtSec = (nowNs - lastTimeNs) / 1_000_000_000.0f
+                if (dtSec.isNaN() || dtSec.isInfinite()) dtSec = 0.016f
+                dtSec = dtSec.coerceIn(MIN_DT_SEC, MAX_DT_SEC)
+                lastTimeNs = nowNs
+                var s = local!!
+
+                // Gravity + vertical collisions
+                val gravPxPerSec2 = GRAVITY_TILES_PER_SEC2 * unitPx
+                val maxFallPxPerSec = MAX_FALL_TILES_PER_SEC * unitPx
+                val wasSupported = isSupported(tileMap, s.worldXPx, unitPx, playerWidthPx, s.bottomPx)
+
+                vY = (vY + gravPxPerSec2 * dtSec).coerceAtLeast(-maxFallPxPerSec)
+                val prevBottom = s.bottomPx
+                var nextBottom = prevBottom + vY * dtSec
+
+                var landed = false
+                if (vY <= 0f) {
+                    val cols = aabbOverlappingColumns(s.worldXPx, unitPx, playerWidthPx)
+                    val startRow = floor((prevBottom - 0.001f) / unitPx).toInt()
+                    val endRow = floor((nextBottom - 0.001f) / unitPx).toInt()
+                    var landingTopPx: Float? = null
+                    for (row in startRow downTo maxOf(endRow, 0)) {
+                        var hit = false
+                        for (c in cols) { if (tileMap.get(c, row)) { hit = true; break } }
+                        if (hit) {
+                            val topPx = (row + 1) * unitPx
+                            if (prevBottom >= topPx && nextBottom <= topPx) {
+                                landingTopPx = maxOf(landingTopPx ?: Float.NEGATIVE_INFINITY, topPx)
+                            }
+                        }
+                    }
+                    if (landingTopPx != null) {
+                        nextBottom = landingTopPx!!
+                        vY = 0f
+                        landed = true
+                    }
+                }
+                s.bottomPx = nextBottom.coerceAtLeast(0f)
+                s.isAirborne = !landed && !isSupported(tileMap, s.worldXPx, unitPx, playerWidthPx, s.bottomPx)
+                if (landed) s.isAirborne = false
+                if (!s.isAirborne) vY = 0f
+
+                // AI Logic
+                val hasLos = hasLineOfSight(s.worldXPx, s.bottomPx, tileMap, unitPx, playerWidthPx, playerHeightPx, SKELETON_LOS_RANGE_UNITS * unitPx)
+                if (hasLos) {
+                    if (!s.isAiming) {
+                        s.isAiming = true
+                        s.aimStartTime = nowMs
+                        s.lastShotTime = nowMs // wait 3s for the first shot
+                    }
+
+                    val timeSinceLastShot = nowMs - s.lastShotTime
+                    val cycleDuration = 3000L
+                    val progress = (timeSinceLastShot % cycleDuration).toFloat() / cycleDuration
+                    
+                    // Pulse faster and faster
+                    // Phase formula: 2 * PI * (3*P + 6*P^2) for 1Hz -> 5Hz over 3s
+                    val p = progress.toDouble()
+                    val phase = 2.0 * kotlin.math.PI * (3.0 * p + 6.0 * p * p)
+                    s.pulseAmount = ((1.0 - kotlin.math.cos(phase)) / 2.0).toFloat()
+
+                    if (timeSinceLastShot >= 3000L) {
+                        val playerTopPx = playerBottomPx + playerHeightPx
+                        val worldWidthPx = tileMap.width * unitPx
+                        val pCenterX = playerWorldXPx + playerWidthPx / 2f
+                        val pCenterY = playerTopPx - unitPx / 2f
+
+                        val arrowSpawnX = if (s.facingRight) {
+                            s.worldXPx + 2.5f * unitPx
+                        } else {
+                            s.worldXPx - 0.5f * unitPx
+                        }
+                        val arrowSpawnY = s.bottomPx + playerHeightPx * 0.7f
+
+                        spawnArrow(
+                            arrowSpawnX,
+                            arrowSpawnY,
+                            pCenterX,
+                            pCenterY,
+                            unitPx,
+                            worldWidthPx,
+                            ownerId = s.id
+                        )
+                        s.lastShotTime = nowMs
+                    }
+
+                    // Face player
+                    val dx = playerWorldXPx - s.worldXPx
+                    val worldWidthPx = tileMap.width * unitPx
+                    val adjustedDx = if (abs(dx) > worldWidthPx / 2f) {
+                        if (dx > 0) dx - worldWidthPx else dx + worldWidthPx
+                    } else dx
+                    s.facingRight = adjustedDx > 0
+                    s.state = NpcState.Idle
+                    s.patrolStrideRemainingPx = 0f // reset patrol when chasing/aiming
+                } else {
+                    s.isAiming = false
+                    s.pulseAmount = 0f
+                    
+                    // Wandering / Patrol logic
+                    if (!s.isAirborne && nowMs >= s.pauseUntil) {
+                        if (nowMs >= s.nextPatrolDecisionMs || s.patrolStrideRemainingPx <= 0f) {
+                            val rngVal = rng.nextFloat()
+                            if (rngVal < 0.15f) {
+                                // Pause
+                                s.state = NpcState.Idle
+                                s.pauseUntil = nowMs + 500 + rng.nextInt(1500)
+                            } else {
+                                // Start walking
+                                s.facingRight = rng.nextBoolean()
+                                s.state = if (s.facingRight) NpcState.WalkRight else NpcState.WalkLeft
+                                s.patrolStrideRemainingPx = (PATROL_STRIDE_TILES_MIN + rng.nextFloat() * (PATROL_STRIDE_TILES_MAX - PATROL_STRIDE_TILES_MIN)) * unitPx
+                            }
+                            s.nextPatrolDecisionMs = nowMs + PATROL_DECISION_MS_MIN + rng.nextInt((PATROL_DECISION_MS_MAX - PATROL_DECISION_MS_MIN).toInt())
+                        }
+                        
+                        if (s.state == NpcState.WalkLeft || s.state == NpcState.WalkRight) {
+                            val speed = SKELETON_RELATIVE_SPEED
+                            val dir = if (s.state == NpcState.WalkRight) 1f else -1f
+                            val moveDist = speed * playerSpeedTilesPerSec * unitPx * dtSec
+                            val nextX = s.worldXPx + dir * moveDist
+                            
+                            val resolvedX = npcApplyHorizontalCollision(tileMap, s.worldXPx, nextX, s.bottomPx, unitPx, playerWidthPx, playerHeightPx)
+                            val actualMove = abs(resolvedX - s.worldXPx)
+                            
+                            // Wrap around
+                            val worldWidthPx = tileMap.width * unitPx
+                            s.worldXPx = (resolvedX + worldWidthPx) % worldWidthPx
+                            s.patrolStrideRemainingPx -= actualMove
+                            
+                            if (actualMove < 0.1f && moveDist > 0.1f) {
+                                // Blocked by wall, stop patrol stride
+                                s.patrolStrideRemainingPx = 0f
+                            }
+                        }
+                    }
+                }
+
+                _skeletons.update { list ->
+                    val newList = list.toMutableList()
+                    val idx = newList.indexOfFirst { it.id == s.id }
+                    if (idx != -1) {
+                        s.worldXDp = pxToDp(s.worldXPx)
+                        newList[idx] = s
+                    }
+                    newList
+                }
+                local = _skeletons.value.firstOrNull { it.id == s.id }
+
+                if (_skeletons.value.firstOrNull()?.id == id) {
+                    updateArrows(tileMap, unitPx, playerWidthPx, playerHeightPx, dtSec)
+                }
+                delay(frameMs)
+            }
+        }
+        skeletonJobs[id] = job
+    }
+
+    fun spawnSkeletonRandom(
+        tileMap: TileMap,
+        unitPx: Float,
+        playerWidthPx: Float,
+        playerHeightPx: Float,
+        avoidLeftPx: Float,
+        avoidRightPx: Float,
+        pxToDp: (Float) -> androidx.compose.ui.unit.Dp
+    ) {
+        val rng = java.util.Random()
+        repeat(200) {
+            val col = rng.nextInt(tileMap.width)
+            var topRow: Int? = null
+            for (r in (tileMap.height - 1) downTo 0) {
+                if (tileMap.get(col, r)) { topRow = r; break }
+            }
+            if (topRow != null) {
+                val sBottom = (topRow!! + 1) * unitPx
+                val sLeftPx = col * unitPx
+                val sOverlapWithAvoid = !(sLeftPx + playerWidthPx < avoidLeftPx || sLeftPx > avoidRightPx)
+                if (!sOverlapWithAvoid) {
+                    val faceRight = rng.nextBoolean()
+                    val s = SkeletonArcher(
+                        worldXDp = pxToDp(sLeftPx),
+                        worldXPx = sLeftPx,
+                        bottomPx = sBottom,
+                        facingRight = faceRight,
+                        hp = 3
+                    )
+                    addSkeleton(s)
+                    startSkeletonArcherJob(s.id, tileMap, unitPx, playerWidthPx, playerHeightPx, pxToDp)
+                    return
+                }
+            }
         }
     }
 
@@ -821,13 +1221,15 @@ class GameViewModel(
                 }
 
                 // Publish update
-                val list = _zombies.value.toMutableList()
-                val i = list.indexOfFirst { it.id == id }
-                if (i != -1) {
-                    // Align worldXDp to px for consistency
-                    z.worldXDp = pxToDp(z.worldXPx)
-                    list[i] = z
-                    _zombies.value = list
+                _zombies.update { list ->
+                    val newList = list.toMutableList()
+                    val i = newList.indexOfFirst { it.id == id }
+                    if (i != -1) {
+                        // Align worldXDp to px for consistency
+                        z.worldXDp = pxToDp(z.worldXPx)
+                        newList[i] = z
+                    }
+                    newList
                 }
 
                 // Exit if dead or removed
@@ -841,6 +1243,8 @@ class GameViewModel(
     fun clear() {
         zombieJobs.values.forEach { it.cancel() }
         zombieJobs.clear()
+        skeletonJobs.values.forEach { it.cancel() }
+        skeletonJobs.clear()
         scope.cancel()
     }
 }

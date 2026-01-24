@@ -1,5 +1,6 @@
 package dev.jamescullimore.dontgotobed
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -135,52 +136,52 @@ fun SelectCharacterScreen(localIp: String, mp: MultiplayerManager?, setMp: (Mult
             }
 
             Spacer(Modifier.height(16.dp))
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        mp?.sendSelectedPlayer(Player.Leo.name)
+                        onSelect(Player.Leo, roleHost ?: true, if (roleHost == false) joinIp else null)
+                    },
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(id = R.drawable.leo_front),
+                        contentDescription = "Leo",
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Leo")
+                }
 
-            Button(
-                onClick = {
-                    mp?.sendSelectedPlayer(Player.Leo.name)
-                    onSelect(Player.Leo, roleHost ?: true, if (roleHost == false) joinIp else null)
-                },
-            ) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(id = R.drawable.leo_front),
-                    contentDescription = "Leo",
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Leo")
-            }
-            Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        mp?.sendSelectedPlayer(Player.Ian.name)
+                        onSelect(Player.Ian, roleHost ?: true, if (roleHost == false) joinIp else null)
+                    },
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(id = R.drawable.ian_front),
+                        contentDescription = "Ian",
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Ian")
+                }
 
-            Button(
-                onClick = {
-                    mp?.sendSelectedPlayer(Player.Ian.name)
-                    onSelect(Player.Ian, roleHost ?: true, if (roleHost == false) joinIp else null)
-                },
-            ) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(id = R.drawable.ian_front),
-                    contentDescription = "Ian",
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Ian")
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = {
-                    mp?.sendSelectedPlayer(Player.Papa.name)
-                    onSelect(Player.Papa, roleHost ?: true, if (roleHost == false) joinIp else null)
-                },
-            ) {
-                androidx.compose.foundation.Image(
-                    painter = painterResource(id = R.drawable.papa_front),
-                    contentDescription = "Papa",
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Papa")
+                Button(
+                    onClick = {
+                        mp?.sendSelectedPlayer(Player.Papa.name)
+                        onSelect(Player.Papa, roleHost ?: true, if (roleHost == false) joinIp else null)
+                    },
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(id = R.drawable.papa_front),
+                        contentDescription = "Papa",
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Papa")
+                }
             }
         }
     }

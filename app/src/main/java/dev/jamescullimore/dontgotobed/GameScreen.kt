@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -115,6 +116,9 @@ fun GameScreen(
         val inventory = vm.inventory
 
         val zombies by vm.zombies.collectAsState()
+        val skeletons by vm.skeletons.collectAsState()
+        val arrows by vm.arrows.collectAsState()
+        val potions by vm.potions.collectAsState()
         // Ticker to force recomposition for NPC visuals regardless of player input
         var npcFrameTick by remember { mutableStateOf(0) }
 
@@ -304,6 +308,20 @@ fun GameScreen(
             )
         }
 
+        fun spawnSkeletonRandom() {
+            val pLeftPx = xDpToPx(playerWorldXDp)
+            val pRightPx = pLeftPx + playerWidthPx
+            vm.spawnSkeletonRandom(
+                tileMap = tileMap,
+                unitPx = unitPx,
+                playerWidthPx = playerWidthPx,
+                playerHeightPx = playerHeightPx,
+                avoidLeftPx = pLeftPx,
+                avoidRightPx = pRightPx,
+                pxToDp = ::pxToDp
+            )
+        }
+
         LaunchedEffect(tileMap.width) {
             if (!didInitialSpawn) {
                 // Position player high above the highest tiles so they "fall in" from the top
@@ -312,8 +330,8 @@ fun GameScreen(
                 isJumping = false
                 didInitialSpawn = true
 
-                // Spawn three zombies at random valid ground positions away from the player
-                repeat(3) { spawnZombieRandom() }
+                repeat(2) { spawnZombieRandom() }
+                repeat(2) { spawnSkeletonRandom() }
             }
         }
 
@@ -367,6 +385,22 @@ fun GameScreen(
             val r0 = floor(bottomPx / unitPx).toInt()
             val r1 = floor(top / unitPx).toInt()
             return r0..r1
+        }
+
+        // Potion collection logic
+        LaunchedEffect(playerWorldXDp, heightPx, potions) {
+            val pLeftPx = xDpToPx(playerWorldXDp)
+            val pRows = playerOverlappingRows(heightPx)
+            val pCols = playerOverlappingColumns(pLeftPx)
+            potions.forEach { potion ->
+                // Check if potion col/row is within player's footprint (wrap-aware)
+                val inCol = pCols.any { ((it % tileMap.width) + tileMap.width) % tileMap.width == potion.col }
+                if (inCol && potion.row in pRows) {
+                    if (vm.collectPotion(potion.id)) {
+                        pushNotice("Potion +1")
+                    }
+                }
+            }
         }
         fun anySolidInColumnsRows(cols: IntRange, rows: IntRange): Boolean {
             for (c in cols) for (r in rows) if (tileMap.get(c, r)) return true
@@ -615,6 +649,42 @@ fun GameScreen(
             return false
         }
 
+        fun isFootprintBlockedBySkeletons(leftCol: Int, bottomRow: Int): Boolean {
+            if (skeletons.isEmpty()) return false
+            val rows = bottomRow..(bottomRow + 2)
+            val colsSet = hashSetOf<Int>()
+            for (c in leftCol..(leftCol + 1)) colsSet.add(((c % tileMap.width) + tileMap.width) % tileMap.width)
+            skeletons.forEach { s ->
+                val sLeftCol = floor(s.worldXPx / unitPx).toInt()
+                val sBottomRow = floor(s.bottomPx / unitPx).toInt()
+                val sRows = sBottomRow..(sBottomRow + 2)
+                val rowsOverlap = !(rows.last < sRows.first || rows.first > sRows.last)
+                if (!rowsOverlap) return@forEach
+                if (colsSet.contains((((sLeftCol) % tileMap.width) + tileMap.width) % tileMap.width) ||
+                    colsSet.contains((((sLeftCol + 1) % tileMap.width) + tileMap.width) % tileMap.width)) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        fun isFrontBandBlockedBySkeletons(frontCol: Int, bottomRow: Int): Boolean {
+            if (skeletons.isEmpty()) return false
+            val rows = bottomRow..(bottomRow + 2)
+            val fC = ((frontCol % tileMap.width) + tileMap.width) % tileMap.width
+            skeletons.forEach { s ->
+                val sLeftCol = floor(s.worldXPx / unitPx).toInt()
+                val sBottomRow = floor(s.bottomPx / unitPx).toInt()
+                val sRows = sBottomRow..(sBottomRow + 2)
+                val rowsOverlap = !(rows.last < sRows.first || rows.first > sRows.last)
+                if (!rowsOverlap) return@forEach
+                val sC0 = ((sLeftCol % tileMap.width) + tileMap.width) % tileMap.width
+                val sC1 = (((sLeftCol + 1) % tileMap.width) + tileMap.width) % tileMap.width
+                if (fC == sC0 || fC == sC1) return true
+            }
+            return false
+        }
+
         fun isFootprintBlockedByPeers(leftCol: Int, bottomRow: Int): Boolean {
             if (!connectionStatus) return false
             val rows = bottomRow..(bottomRow + 2)
@@ -653,12 +723,14 @@ fun GameScreen(
         fun isBlockedAt(leftCol: Int, bottomRow: Int): Boolean {
             return isFootprintBlockedByTiles(leftCol, bottomRow) ||
                     isFootprintBlockedByZombies(leftCol, bottomRow) ||
+                    isFootprintBlockedBySkeletons(leftCol, bottomRow) ||
                     isFootprintBlockedByPeers(leftCol, bottomRow)
         }
 
         fun isFrontBandBlocked(frontCol: Int, bottomRow: Int): Boolean {
             return isFrontBandBlockedByTiles(frontCol, bottomRow) ||
                     isFrontBandBlockedByZombies(frontCol, bottomRow) ||
+                    isFrontBandBlockedBySkeletons(frontCol, bottomRow) ||
                     isFrontBandBlockedByPeers(frontCol, bottomRow)
         }
 
@@ -781,7 +853,7 @@ fun GameScreen(
                 anythingHit = true
             }
 
-            // Independently damage any zombie overlapping this cell (wrap-aware along X)
+            // Independently damage any zombie or skeleton overlapping this cell (wrap-aware along X)
             run {
                 val cellLeft = wrappedX * unitPx
                 val cellRight = cellLeft + unitPx
@@ -801,14 +873,29 @@ fun GameScreen(
                         if (!(cellRight <= zl || cellLeft >= zr)) {
                             // Overlaps
                             localHit = true
-                            vm.damageZombie(z.id, 1)
+                            vm.damageZombie(z.id, unitPx, 1)
+                            break
+                        }
+                    }
+                }
+                skeletons.forEach { s ->
+                    val sBottom = s.bottomPx
+                    val sTop = sBottom + playerHeightPx
+                    // Quick vertical reject
+                    if (cellTop <= sBottom || cellBottom >= sTop) return@forEach
+                    val baseLeft = s.worldXPx
+                    val candidates = floatArrayOf(baseLeft, baseLeft - worldWidthPx, baseLeft + worldWidthPx)
+                    for (sl in candidates) {
+                        val sr = sl + playerWidthPx
+                        if (!(cellRight <= sl || cellLeft >= sr)) {
+                            // Overlaps
+                            localHit = true
+                            vm.damageSkeleton(s.id, unitPx, 1)
                             break
                         }
                     }
                 }
                 if (localHit) {
-                    // Count newly dead for rewards (approximate by checking hp<=0 after damage could be complex; grant per kill in VM if needed)
-                    // We keep simple feedback: if any died, the VM will remove and inventory rewards are handled elsewhere on tile destruction.
                     anythingHit = true
                 }
             }
@@ -1100,6 +1187,7 @@ fun GameScreen(
                 // Tune jump so player can clear a single 1-tile block but not 2 tiles.
                 // With g = -3000 px/s^2, choose v0 ≈ 620 px/s for peak height ~64 px (≈1.6 tiles),
                 // which is enough to hop a single block but insufficient for two stacked blocks during run-up.
+                //TODO this needs to be calculated that the player can jump 4x1 grids
                 var v = 1000f // px/s upward
                 val g = -3000f // px/s^2
                 val frameMs = 16L
@@ -1234,6 +1322,22 @@ fun GameScreen(
                                     if (zTop in heightPx..prevBottom) {
                                         landingTopPx =
                                             max(landingTopPx ?: Float.NEGATIVE_INFINITY, zTop)
+                                    }
+                                }
+                            }
+                            // Also consider landing on any skeleton's top
+                            skeletons.forEach { s ->
+                                val sCols = run {
+                                    val c0 = floor(s.worldXPx / unitPx).toInt()
+                                    val c1 = floor((s.worldXPx + playerWidthPx - 0.001f) / unitPx).toInt()
+                                    c0..c1
+                                }
+                                val horizOverlap = cols.any { it in sCols }
+                                if (horizOverlap) {
+                                    val sTop = s.bottomPx + playerHeightPx
+                                    if (sTop in heightPx..prevBottom) {
+                                        landingTopPx =
+                                            max(landingTopPx ?: Float.NEGATIVE_INFINITY, sTop)
                                     }
                                 }
                             }
@@ -1527,6 +1631,16 @@ fun GameScreen(
                                 if (colsOverlap && rowsOverlap) return false
                             }
                         }
+                        // disallow overlap with skeletons
+                        skeletons.forEach { s ->
+                            val sCol0 = floor(s.worldXPx / unitPx).toInt()
+                            val sCol1 = floor((s.worldXPx + playerWidthPx - 0.001f) / unitPx).toInt()
+                            val sRow0 = floor((s.bottomPx - 0.001f) / unitPx).toInt()
+                            val sRow1 = floor(((s.bottomPx + playerHeightPx - 0.001f) / unitPx)).toInt()
+                            val colsOverlap = placeCols.any { c -> ((c % tileMap.width) + tileMap.width) % tileMap.width in sCol0..sCol1 }
+                            val rowsOverlap = placeRows.any { r -> r in sRow0..sRow1 }
+                            if (colsOverlap && rowsOverlap) return false
+                        }
                         // region emptiness
                         for (dx in 0..2) {
                             val cx = ((anchorCol + dx) % tileMap.width + tileMap.width) % tileMap.width
@@ -1724,6 +1838,85 @@ fun GameScreen(
                     }
                 }
 
+                // Render Skeletons if present
+                if (skeletons.isNotEmpty()) {
+                    val worldWidthDp = pxToDp(tileMap.width * unitPx)
+                    skeletons.forEach { s ->
+                        val sXDp = pxToDp(s.worldXPx)
+                        val baseX = centerX + (sXDp - playerWorldXDp)
+                        val candidates = listOf(baseX, baseX - worldWidthDp, baseX + worldWidthDp)
+                        val sHeightDp = pxToDp(s.bottomPx)
+                        candidates.forEach { candX ->
+                            if (candX > -playerWidth && candX < screenWidth + playerWidth) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.skeleton_archer),
+                                    contentDescription = "Skeleton Archer",
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .offset(x = candX, y = -sHeightDp)
+                                        .height(playerHeight)
+                                        .graphicsLayer {
+                                            scaleX = if (s.facingRight) 1f else -1f
+                                        },
+                                    colorFilter = if (System.currentTimeMillis() <= s.flashUntil) {
+                                        ColorFilter.tint(Color.Red)
+                                    } else if (s.pulseAmount > 0f) {
+                                        ColorFilter.tint(Color.White.copy(alpha = s.pulseAmount), BlendMode.SrcAtop)
+                                    } else null
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Render Arrows if present
+                if (arrows.isNotEmpty()) {
+                    val worldWidthDp = pxToDp(tileMap.width * unitPx)
+                    arrows.forEach { arrow ->
+                        val aXDp = pxToDp(arrow.worldXPx)
+                        val baseX = centerX + (aXDp - playerWorldXDp)
+                        val candidates = listOf(baseX, baseX - worldWidthDp, baseX + worldWidthDp)
+                        val aHeightDp = pxToDp(arrow.bottomPx)
+                        candidates.forEach { candX ->
+                            if (candX > -unit && candX < screenWidth + unit) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .offset(x = candX, y = -aHeightDp)
+                                        .height(2.dp)
+                                        .width(unit)
+                                        .background(Color.DarkGray)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Render Potions if present
+                if (potions.isNotEmpty()) {
+                    val worldWidthDp = pxToDp(tileMap.width * unitPx)
+                    potions.forEach { p ->
+                        val pXDp = pxToDp(p.col * unitPx)
+                        val baseX = centerX + (pXDp - playerWorldXDp)
+                        val candidates = listOf(baseX, baseX - worldWidthDp, baseX + worldWidthDp)
+                        val pHeightDp = pxToDp(p.row * unitPx)
+                        candidates.forEach { candX ->
+                            if (candX > -unit && candX < screenWidth + unit) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .offset(x = candX, y = -pHeightDp)
+                                        .size(unit)
+                                        .background(Color.Magenta),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("✚", color = Color.White, fontSize = with(LocalDensity.current) { (unit * 0.8f).toSp() })
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // HUD: Player hearts at top center
                 Row(
                     modifier = Modifier
@@ -1779,11 +1972,12 @@ fun GameScreen(
                 }
             }
 
-            // Periodic spawner: every 60 seconds add another zombie
+            // Periodic spawner: every 60 seconds add another zombie and skeleton
             LaunchedEffect(Unit) {
                 while (true) {
                     delay(60000L)
                     spawnZombieRandom()
+                    spawnSkeletonRandom()
                 }
             }
 
@@ -1856,6 +2050,21 @@ fun GameScreen(
                             if (horizOverlap) {
                                 val zTop = z.bottomPx + playerHeightPx
                                 supportedTopPxCandidates += zTop
+                            }
+                        }
+                    }
+                    // Also treat skeletons' tops as valid support
+                    if (skeletons.isNotEmpty()) {
+                        skeletons.forEach { s ->
+                            val sCols = run {
+                                val c0 = floor(s.worldXPx / unitPx).toInt()
+                                val c1 = floor((s.worldXPx + playerWidthPx - 0.001f) / unitPx).toInt()
+                                c0..c1
+                            }
+                            val horizOverlap = cols.any { it in sCols }
+                            if (horizOverlap) {
+                                val sTop = s.bottomPx + playerHeightPx
+                                supportedTopPxCandidates += sTop
                             }
                         }
                     }
