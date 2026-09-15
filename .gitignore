@@ -1,24 +1,136 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-/.idea/sonarlint
+# macOS
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+
+# IDEs
+.idea/
+*.iml
+
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+**/build/
+!src/**/build/
+!**/src/**/build/
+
+# Local Android / Gradle configuration
 local.properties
-/.idea/sonarlint/
-/.idea/sonarlint/*
-/.idea/markdown-navigator.xml
-/app/prod/release/app-prod-release.aab
-/.idea/deploymentTargetSelector.xml
-/.idea/other.xml
-/.idea
-/app/google-services.json
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Android build artifacts
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Xcode / iOS local state and build output
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Preserve committed Xcode project metadata
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/project.xcworkspace/
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcodeproj/xcshareddata/
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+# Dependency/cache output
+node_modules/
+Pods/
+.swiftpm/
+.build/
+
+# Workspace-local material
+/.jc/
+/reference/
+
+# Local public purchase configuration
+iosApp/Configuration/Local.xcconfig
+
+# Local upload-signing material
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+
+# Reproducible trailer editing intermediates (final exports remain reviewable)
+/docs/release/assets/trailer-v2/edit/
+
+# Local environment and credential files (commit examples, never real values)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.local.properties
+keystore.properties
+key.properties
+/signing/
+/secrets/
+/credentials/
+*service-account*.json
+*service_account*.json
+*.credentials.json
+
+# Apple API/distribution keys and other private signing material
+*.p8
+*.pfx
+*.pkcs12
+*.key
+*.pem
+*.provisionprofile
+
+# Xcode archives, test attachments and local performance recordings
+*.xcarchive/
+*.xcresult/
+*.trace/
+*.profraw
+*.profdata
+
+# Python tooling used by capture/export scripts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Local logs, editor backups and OS metadata
+*.log
+*.swp
+*.swo
+*~
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Desktop.ini
+
+# Intentionally retain: Gradle wrapper and shared build configuration, Xcode
+# projects/shared schemes, app resources (except licensed source audio), release screenshots
+# and final videos, site sources and site/public for the website handover.
+
+# Licensed originals and personal recordings are supplied privately.
+/composeApp/src/commonMain/composeResources/files/audio/*.mp3
+/voice-recordings/
+# Private device diagnostics, identities and local paths.
+/docs/release/assets/device-smoke-2026-09-15/
+/docs/release/device-smoke-2026-09-15.md
+/docs/release/assets/**/*.xml
+/docs/release/assets/**/capture.json
+/docs/release/assets/**/edit.json
+
+# Release operations and media production are delivered in the private ZIP.
+/site/
+/docs/art/
+/docs/talk/
+/docs/release/

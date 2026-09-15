@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Center the artwork at 67% of the adaptive icon layer: (100 - 67) / 2. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="16.5%"
+    android:insetTop="16.5%"
+    android:insetRight="16.5%"
+    android:insetBottom="16.5%">
+    <bitmap
+        android:src="@drawable/ic_launcher_artwork"
+        android:gravity="fill"
+        android:filter="true" />
+</inset>

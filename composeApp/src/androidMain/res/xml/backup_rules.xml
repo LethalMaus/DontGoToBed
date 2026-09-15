@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Save preferences only; exclude purchase SDK identity and caches. -->
+<full-backup-content>
+    <include domain="sharedpref" path="game_settings.xml" />
+</full-backup-content>

@@ -1,0 +1,47 @@
+Privacy policy — Android
+
+DRAFT — Retention terms are awaiting confirmation.
+
+Who is responsible
+James Cullimore publishes Don't Go To Bed for Android (app identifier: dev.jamescullimore.dontgotobed). For support or privacy requests, contact info@jamescullimore.dev. Effective date: 2026-09-14.
+
+Playing the game
+No game account, real name, email address, or date of birth is required to play. The game stores world preferences on your device. Worlds, inventory, and progress belong to the current session and are not saved as a continuing world when you leave. We do not operate an online game backend. The app does not include advertising, public chat, social login, or gameplay analytics.
+
+Nearby multiplayer
+If you choose Host or Join, devices on the same local network exchange the selected character, a temporary peer identifier, network addresses, player positions, actions, and world state, including terrain, enemies, and pickups. The host device processes this information to run the shared game. World latitude and longitude are fictional game coordinates, not your geographic location. Multiplayer uses unencrypted local WebSocket connections; use a trusted network. It does not provide internet matchmaking. Session state ends when the session closes.
+
+Device permissions and storage
+Android internet and network-state permissions support nearby multiplayer and optional purchase processing. The app does not request location, contacts, camera, microphone, or photos. Game preferences can be included in Android backup or device transfer according to your device settings. Purchase SDK caches and identifiers are excluded from the app's Android backup rules.
+
+Optional support tips
+All characters and gameplay are free. A grown-up can choose an optional, repeatable, one-time tip through Google Play. Tips do not unlock content or advantages and are not subscriptions. The app configures RevenueCat only after the grown-ups gate is passed and a purchase key is configured. Opening that page can contact RevenueCat and the store even if no purchase is completed.
+
+Purchase information
+Google Play handles payment credentials; we do not receive your card details. RevenueCat processes purchase history and transaction identifiers, an anonymous app user identifier, product and price information, and technical information needed to provide its service, such as app/OS version, locale and network information. This supports receipt validation, purchase support, fraud prevention and purchase reporting in the RevenueCat dashboard. We do not attach your character, gameplay history, name or email to RevenueCat, or enable advertising-attribution integrations. A pending-tip marker may be stored locally to help explain a payment awaiting approval.
+
+Support messages
+If you contact us, we receive your email address and the information you send. We use it to answer your request, investigate a problem or respond to a privacy request. Please do not send passwords, card details, or unnecessary personal information about children. [Publisher must confirm support-message retention before publication.]
+
+Children and families
+Children can play without opening the optional support page. Purchases are behind a grown-ups gate and use the store's purchase and parental approval controls. We do not ask children to create profiles, upload content, or send personal information. A parent or guardian can contact us about information they believe a child has provided.
+
+Why information is processed
+We process information as needed to provide the game and requested purchases or support, prevent fraud, and meet applicable legal obligations. Where applicable, the legal bases are performing the requested service, our legitimate interests in operating and protecting it and responding to requests, and compliance with legal obligations. Optional purchases are not a condition of playing. Store permissions can be changed in device settings.
+
+Retention and deletion
+Leaving a session ends its temporary game state. Removing the app removes its local data, subject to any device backups you retain. [Publisher must confirm purchase-record retention before publication.] Store transaction records may remain under the store's own retention and legal requirements. Removing the app does not erase those records or cancel a pending store approval. Contact info@jamescullimore.dev to request access, correction or deletion of information we control. We may need limited transaction information to locate an anonymous purchase record; never send payment credentials.
+
+Providers and international processing
+Google Play and RevenueCat process information under their applicable terms and privacy notices. Information may be processed outside your country, including in the United States, subject to applicable transfer safeguards. We do not sell personal information or use it for targeted advertising. This website uses no analytics scripts, advertising pixels, cookies or external fonts; it is hosted on GitHub Pages, whose hosting infrastructure may process request logs such as IP addresses to serve and secure the pages. GitHub handles those logs under its privacy statement.
+
+Your choices and rights
+You can play solo, leave multiplayer, avoid opening support, and choose not to buy a tip. Depending on your location, you may have rights to access, correct, delete, restrict or object to processing, obtain a copy of data, or complain to your local data protection authority. Contact info@jamescullimore.dev to make a request. This does not affect store-managed refunds or records the store must keep.
+
+Changes to this policy
+We will update this page and its effective date when practices change. Material changes will be communicated where required. The policy should describe the version of the app actually offered in the store.
+
+Provider policies
+RevenueCat privacy: https://www.revenuecat.com/privacy-policy
+GitHub privacy: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+Google privacy: https://policies.google.com/privacy
