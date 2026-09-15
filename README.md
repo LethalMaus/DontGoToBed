@@ -1,126 +1,119 @@
-![Don't Go To Bed Poster](app/src/main/res/drawable/poster.png)
+![Don't Go To Bed — Explore. Build. Find Mammy.](docs/images/feature.png)
 
-# Dont go To Bed
+# Don't Go To Bed
 
-A cozy, chaotic, family-designed 2.5D multiplayer adventure — built in pure Kotlin with no external game engine. Break blocks, craft, bonk baddies, and team up to find Mammy before dreamland arrives and the monsters return.
+A cozy, chaotic, family-designed **2.5D multiplayer adventure**. Build a route,
+bonk a zombie, turn the whole world… and find Mammy before dark.
+
+Made by **Leo, Ian and James (Daddy)** with Kotlin Multiplatform and Compose
+Multiplatform. No external game engine. A fairly ambitious use of a pocket full of dirt.
+
+**Android · iPhone · iPad** — currently preparing the first store release.
+All gameplay is free; optional grown-up tips unlock nothing.
+
+[Build and contribute](CONTRIBUTING.md) · [Roadmap](ROADMAP.md) ·
+[Code and asset licenses](LICENSING.md)
 
 ---
 
-## Story
-The dreamland can be a scary place, sometimes monsters appear, thankfully, we have the weapons and skills required to defeat and protect ourselves from these monsters. Our goal is to find the mammy, who left us early in the morning and the daddy cant remember where she went because she didnt put it in the calender. All she left us with is a note 'Gone to *unreadable scribble*, see you there, if not, dont go to bed without me'. We have to journey to find the mammy, before the dreamland comes, where the monsters might return
+## The story
 
----
+Mammy left early. Daddy can't remember where she went because she didn't put it
+in the calendar. All she left was a note:
+
+> Gone to *unreadable scribble*. See you there. If not, don't go to bed without me.
+
+Time to find her before dreamland arrives and the monsters come out.
+We have three adventurers, some building blocks and a plan.
+The plan is mostly building blocks.
 
 ## What is this?
-- Designed by Leo (7), Ian (4) and James (Daddy).
-- A 2.5 dimensional, Minecraft + Super Mario Bros–inspired, pure Kotlin, engineless game.
-- The main designers are Leo and Ian. The main dev is Junie (because Daddy isn’t allowed to spend time on boring-looking things) — so don’t blame Junie fully for the code quality.
-- Status: very, very, very early development. Not everything is done yet. There’s a roadmap… currently in Leo’s scrapbook.
 
----
+- Designed by the boys, built together as a family.
+- Inspired by Minecraft, Super Mario Bros. and the things in Leo's scrapbook.
+- Shared Kotlin gameplay and Compose UI across Android and iOS.
+- A playable game in release preparation: store setup, real purchase tests and
+  the final physical multiplayer/device checks are still outstanding.
 
-## Game Play Premise
-There are 3 playable characters. You can build, fight and jump your way around the world. The blocks can be broken, collected and reused. You can collect items, craft, create and use weapons against enemies such as the zombie, skeleton, alien and beast. There will be different levels to play, each adding to the storyline.
+The original Android project grew into this multiplatform version. The original Android version remains in Git history; this tree contains the current game.
 
-The multiplayer is done via websocket connection, syncing the world and players.
+## Play together
 
----
+![Leo and Ian exploring together beside a bridge in a real multiplayer session](docs/images/multiplayer.png)
 
-## Screenshots & Art
-Some of the characters and enemies you’ll encounter are in `app/src/main/res/drawable/`:
-- leo_front.webp, ian_front.png, papa_front.png (+ walk/side variants)
-- zombie, skeleton, alien sprites
-- together.png, mammy.png
+Two players really are in that scene: Leo and Ian, connected through the ordinary
+Host/Join flow on two Android emulators. This is a real session screenshot, not a
+composite of separate characters. Physical Android/iOS cross-play still needs its
+final release checks.
 
----
+1. Connect devices to the same trusted Wi-Fi network.
+2. On one device, select **Host**, then choose a character.
+3. On another, select **Join** and enter the host's displayed local IP address.
+4. Join with another character and set off together.
 
-## Features (WIP)
-- 2.5D side-scrolling platforming with building and destructible tiles
-- Collect, reuse, and craft from broken blocks
-- Melee actions ("hit") and jumping
-- Basic enemy roster: zombie, skeleton, alien, beast (assets in repo; behaviors evolving)
-- Local multiplayer over WebSocket (host one device, others join)
-- Pure Kotlin + Jetpack Compose UI; no external game engine
+Use the same game version on every device. iOS may ask for local-network access.
+The host runs a local WebSocket server on port `8082`; there is no hosted game
+backend, public matchmaking or public chat. Connections are unencrypted, so use a
+trusted network. `127.0.0.1` refers to the same device, not another player's phone.
 
----
+## What's playable now?
 
-## Tech Stack
-- Language: Kotlin (Android)
-- UI: Jetpack Compose
-- Multiplayer: org.java_websocket
-  - Default port: 8082
-  - Default client host IP: 127.0.0.1 (overridden at runtime with the host’s local IP)
-- Min/target SDK: defined in Gradle; open with latest Android Studio
+- **Leo, Ian and Papa:** choose a character and explore on your own or together.
+- **A world you can turn:** switch between latitude and longitude to discover
+  another route through houses, bridges, gardens and mountains.
+- **Build your own way:** break, collect and place grass, wood and stone blocks;
+  select materials and shapes from the bag.
+- **Cartoon trouble:** zombies, skeleton archers, melee attacks, arrows and potions.
+- **Find Mammy:** five minutes to find her, a night-time hunt if you're late,
+  and five peaceful minutes when you succeed.
+- **The dangerous bed:** a nightfall obstacle with map and supply rewards when
+  broken. The map helps you navigate. Landing on the bed is a bad plan.
+- **Music and effects:** menu, search and panic music with fades; sounds for
+  jumping, hitting, placing, arrows, damage, potions and turning the world.
+- **Saved settings:** separate music/effect volumes, world settings, direction
+  buttons, reduced motion and reduced flashes. Audio credits are beside the sliders.
+- **A fresh adventure each session:** settings persist; worlds do not. Solo play
+  pauses in the menu/background. Multiplayer ends locally when backgrounded.
 
-Key classes:
-- MainActivity — game loop, UI, tile map, physics, and input handling
-- MultiplayerManager — lightweight WebSocket client/server, simple pipe-delimited protocol (INPUT, POS, TILE, CHAR)
+Crafting, character-specific special moves and the larger enemy roster are
+**future ideas**, not features being advertised for this release.
 
----
+## Controls
 
-## Build & Run (Android)
-1. Open the project in Android Studio (Giraffe+ recommended).
-2. Let Gradle sync and build.
-3. Run on at least two devices/emulators connected to the same network.
-4. In-app:
-   - Choose your character (Leo, Ian, or Papa).
-   - One device selects Host to start the WebSocket server.
-   - Other devices select Join and enter the host device’s local IP address.
-   - Port is 8082 by default.
+| Control | Action |
+| --- | --- |
+| Joystick / optional direction buttons | Move and aim |
+| Jump | Jump over trouble |
+| Hit | Attack or break a targeted block |
+| Place / Use | Place the selected block or use a compatible item |
+| Bag | Select items; long-press a material stack for shapes |
+| Turn | Explore the other world direction |
+| Map, when owned | Show the world overview |
+| Menu | Settings, help and leaving the session; pauses solo play |
 
-Tip: The app shows the device’s local IP to help others join. Make sure devices are on the same Wi‑Fi/VLAN and that the network allows local connections.
+## Trailer
 
----
+[Watch the narrated trailer on YouTube](https://youtu.be/JN5BdB0Ek_c).
+Real Android gameplay, including two-player multiplayer. Store release is still in preparation.
 
-## Controls (current defaults)
-- Move Left/Right: on-screen buttons
-- Jump: on-screen button
-- Hit/Break: on-screen button (damages or breaks tiles; broken tiles can be reused)
+## Build and contribute
 
-Note: Controls and mechanics are evolving quickly.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for Android/iOS setup, audio prerequisites,
+tests and local configuration. Original licensed MP3s are supplied separately;
+a public checkout requires licensed replacements before running the game.
 
----
+## Project layout
 
-## Protocol (for tinkerers)
-MultiplayerManager uses a tiny text protocol over WebSocket:
-- INPUT|<l>|<r>|<j>|<h> where each flag is 1/0
-- POS|<xDp>|<heightPx>
-- TILE|destroy|<x>|<y>
-- CHAR|<name>
+- `composeApp/`: shared gameplay, UI, resources, tests and platform integrations.
+- `iosApp/`: native Apple host and shared Xcode schemes.
+- `scripts/`: build, audio preparation and diagnostic helpers.
+- `docs/images/`: selected README images.
 
-Logs are printed with tag "Multiplayer" for debugging.
+Publisher release instructions, website sources and production media are supplied
+privately in an ignored ZIP handoff. They are not needed to contribute game code.
 
----
+## Licence
 
-## Project Structure (high level)
-- app/src/main/java/dev/jamescullimore/dontgotobed/
-  - MainActivity.kt — game UI/logic
-  - MultiplayerManager.kt — WebSocket hosting/joining and message handling
-- app/src/main/res/drawable/ — sprites and images (including poster.png)
-- app/src/main/res/values/ — themes, strings, colors
-
----
-
-## Roadmap
-- More levels tied to the storyline
-- Crafting system and inventories
-- Additional enemy behaviors and AI
-- Polished physics, collisions, and VFX
-
-(And whatever Leo’s scrapbook says next!)
-
----
-
-## Credits
-- Game design: Leo (7), Ian (4)
-- Development: Junie (with oversight by James/Daddy)
-- Inspiration: Minecraft, Super Mario Bros.
-
-Art, names, and story belong to the family creators of this project.
-
-![Us](app/src/main/res/drawable/together.png)
-
----
-
-## License
-TBD — currently no explicit open-source license. Please ask before reusing assets or code.
+Code is [MIT licensed](LICENSE). Family artwork and identity have
+[separate terms](LICENSING.md). Published forks must replace the family branding
+and obtain their own rights for third-party assets.

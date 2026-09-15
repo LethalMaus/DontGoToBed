@@ -1,0 +1,12 @@
+// Set TEAM_ID in the ignored Local.xcconfig for device signing.
+TEAM_ID=
+
+PRODUCT_NAME=dontgotobed
+PRODUCT_BUNDLE_IDENTIFIER=dev.jamescullimore.dontgotobed
+
+CURRENT_PROJECT_VERSION=1
+MARKETING_VERSION=1.0
+
+// Public SDK key only. Override locally; never put a secret API key here.
+REVENUECAT_IOS_API_KEY=
+#include? "Local.xcconfig"
