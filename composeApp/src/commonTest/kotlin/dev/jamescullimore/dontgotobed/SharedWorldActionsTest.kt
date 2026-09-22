@@ -34,7 +34,7 @@ class SharedWorldActionsTest {
         val authority = authority(map, host)
         repeat(2) { assertEquals("true;_;_", authority.apply(1, action(it.toLong(), "HIT", "12", "5", Direction.Right.ordinal.toString()))) }
         assertEquals("true;Block;Grass", authority.apply(1, action(3, "HIT", "12", "5", Direction.Right.ordinal.toString())))
-        assertEquals(before, host.inventory)
+        assertContentEquals(before, host.inventory)
         assertFalse(map.getVoxel(7, 12, 5))
         assertEquals(WorldAxis.Latitude, map.activeAxis)
         assertEquals(2, map.activeSlice)

@@ -1,7 +1,5 @@
 Privacy policy — Android
 
-DRAFT — Retention terms are awaiting confirmation.
-
 Who is responsible
 James Cullimore publishes Don't Go To Bed for Android (app identifier: dev.jamescullimore.dontgotobed). For support or privacy requests, contact info@jamescullimore.dev. Effective date: 2026-09-14.
 
@@ -21,7 +19,7 @@ Purchase information
 Google Play handles payment credentials; we do not receive your card details. RevenueCat processes purchase history and transaction identifiers, an anonymous app user identifier, product and price information, and technical information needed to provide its service, such as app/OS version, locale and network information. This supports receipt validation, purchase support, fraud prevention and purchase reporting in the RevenueCat dashboard. We do not attach your character, gameplay history, name or email to RevenueCat, or enable advertising-attribution integrations. A pending-tip marker may be stored locally to help explain a payment awaiting approval.
 
 Support messages
-If you contact us, we receive your email address and the information you send. We use it to answer your request, investigate a problem or respond to a privacy request. Please do not send passwords, card details, or unnecessary personal information about children. [Publisher must confirm support-message retention before publication.]
+If you contact us, we receive your email address and the information you send. We use it to answer your request, investigate a problem or respond to a privacy request. Please do not send passwords, card details, or unnecessary personal information about children. Support messages are kept for no more than 12 months after the respective request is closed and then deleted, unless a legal obligation requires longer retention.
 
 Children and families
 Children can play without opening the optional support page. Purchases are behind a grown-ups gate and use the store's purchase and parental approval controls. We do not ask children to create profiles, upload content, or send personal information. A parent or guardian can contact us about information they believe a child has provided.
@@ -30,7 +28,7 @@ Why information is processed
 We process information as needed to provide the game and requested purchases or support, prevent fraud, and meet applicable legal obligations. Where applicable, the legal bases are performing the requested service, our legitimate interests in operating and protecting it and responding to requests, and compliance with legal obligations. Optional purchases are not a condition of playing. Store permissions can be changed in device settings.
 
 Retention and deletion
-Leaving a session ends its temporary game state. Removing the app removes its local data, subject to any device backups you retain. [Publisher must confirm purchase-record retention before publication.] Store transaction records may remain under the store's own retention and legal requirements. Removing the app does not erase those records or cancel a pending store approval. Contact info@jamescullimore.dev to request access, correction or deletion of information we control. We may need limited transaction information to locate an anonymous purchase record; never send payment credentials.
+Leaving a session ends its temporary game state. Removing the app removes its local data, subject to any device backups you retain. We generally keep pseudonymous purchase and transaction data for no more than 3 years after the last purchase, then delete or anonymize it. Billing or record-keeping data required by law may be kept longer for the applicable statutory retention period. Google Play and RevenueCat additionally process data under their own privacy and retention terms. Store transaction records may remain under the store's own retention and legal requirements. Removing the app does not erase those records or cancel a pending store approval. Contact info@jamescullimore.dev to request access, correction or deletion of information we control. We may need limited transaction information to locate an anonymous purchase record; never send payment credentials.
 
 Providers and international processing
 Google Play and RevenueCat process information under their applicable terms and privacy notices. Information may be processed outside your country, including in the United States, subject to applicable transfer safeguards. We do not sell personal information or use it for targeted advertising. This website uses no analytics scripts, advertising pixels, cookies or external fonts; it is hosted on GitHub Pages, whose hosting infrastructure may process request logs such as IP addresses to serve and secure the pages. GitHub handles those logs under its privacy statement.

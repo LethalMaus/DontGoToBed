@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-    <dict>
-        <key>RevenueCatPublicAPIKey</key>
-        <string>$(REVENUECAT_IOS_API_KEY)</string>
-        <key>CADisableMinimumFrameDurationOnPhone</key>
-        <true/>
-        <key>NSLocalNetworkUsageDescription</key>
-        <string>Don't Go To Bed uses the local network so nearby devices can host and join multiplayer games.</string>
-    </dict>
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>RevenueCatPublicAPIKey</key>
+	<string>$(REVENUECAT_IOS_API_KEY)</string>
+</dict>
 </plist>

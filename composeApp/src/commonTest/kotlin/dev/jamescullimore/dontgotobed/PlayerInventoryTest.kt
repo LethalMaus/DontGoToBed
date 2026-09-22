@@ -1,6 +1,7 @@
 package dev.jamescullimore.dontgotobed
 
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -29,7 +30,7 @@ class PlayerInventoryTest {
         assertTrue(bag.add(ItemType.Block, 20, BlockMaterial.Grass))
         val before = bag.slots.toList()
         assertFalse(bag.add(ItemType.Block, 1, BlockMaterial.Stone))
-        assertEquals(before, bag.slots)
+        assertContentEquals(before, bag.slots)
         assertTrue(bag.add(ItemType.Block, 2, BlockMaterial.Wood))
         assertEquals(3, bag.slots[1].count)
         assertTrue(bag.consume(1, 3))

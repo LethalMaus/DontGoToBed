@@ -28,6 +28,18 @@ kotlin {
             baseName = "ComposeApp"
             isStatic = true
         }
+        // RevenueCat's native library includes a build-machine Swift search path.
+        // Resolve the active Xcode toolchain so native tests can link its runtime.
+        if (System.getProperty("os.name") == "Mac OS X") {
+            val swiftCompiler = providers.exec {
+                commandLine("/usr/bin/xcrun", "--find", "swiftc")
+            }.standardOutput.asText.get().trim()
+            val swiftLibraries = file(swiftCompiler).parentFile.parentFile
+                .resolve("lib/swift/${if (iosTarget.name == "iosArm64") "iphoneos" else "iphonesimulator"}")
+            iosTarget.binaries.all {
+                linkerOpts("-L${swiftLibraries.absolutePath}")
+            }
+        }
     }
 
     sourceSets {
