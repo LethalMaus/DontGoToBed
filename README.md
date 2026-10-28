@@ -37,14 +37,29 @@ The plan is mostly building blocks.
 
 The original Android project grew into this multiplatform version. The original Android version remains in Git history; this tree contains the current game.
 
+## Gameplay gallery
+
+Actual Android gameplay from the latest development build (32, `1.2-ui-review`),
+framed with illustrated character artwork. These images show the upcoming UI and
+features; they do not establish that this build has shipped.
+
+![Build your own way](docs/images/screenshots/01-house.jpg)
+
+![A little extra spark](docs/images/screenshots/02-arrows.jpg)
+
+![Find another world](docs/images/screenshots/03-portal.jpg)
+
+![Swing into adventure](docs/images/screenshots/04-vine.jpg)
+
+![Meet the neighbours](docs/images/screenshots/05-enemies.jpg)
+
+![Find Mammy](docs/images/screenshots/06-mammy.jpg)
+
+![Pack for the unexpected](docs/images/screenshots/07-inventory.jpg)
+
+![Bedtime has other plans](docs/images/screenshots/08-bed.jpg)
+
 ## Play together
-
-![Leo and Ian exploring together beside a bridge in a real multiplayer session](docs/images/multiplayer.png)
-
-Two players really are in that scene: Leo and Ian, connected through the ordinary
-Host/Join flow on two Android emulators. This is a real session screenshot, not a
-composite of separate characters. Physical Android/iOS cross-play still needs its
-final release checks.
 
 1. Connect devices to the same trusted Wi-Fi network.
 2. On one device, select **Host**, then choose a character.
