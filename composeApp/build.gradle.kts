@@ -156,4 +156,9 @@ if (providers.gradleProperty("storeRelease").orElse("false").get().toBoolean()) 
 
 dependencies {
     debugImplementation(libs.compose.uiTooling)
+    constraints {
+        add("androidMainImplementation", libs.androidx.fragment) {
+            because("Play Billing/Play services transitively request obsolete Fragment 1.1.0")
+        }
+    }
 }
