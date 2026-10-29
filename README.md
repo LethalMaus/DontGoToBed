@@ -39,9 +39,9 @@ The original Android project grew into this multiplatform version. The original 
 
 ## Gameplay gallery
 
-Actual Android gameplay from the latest development build (32, `1.2-ui-review`),
-framed with illustrated character artwork. These images show the upcoming UI and
-features; they do not establish that this build has shipped.
+Actual Android gameplay, framed with illustrated character artwork. Screenshots
+were refreshed on 29 October 2026, including the new bow-draw pose. They show
+features prepared for version 1.2; they do not establish that the update has shipped.
 
 ![Build your own way](docs/images/screenshots/01-house.jpg)
 
