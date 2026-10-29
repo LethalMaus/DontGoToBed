@@ -40,7 +40,7 @@ def launch():
  adb('shell','am','force-stop',pkg);adb('shell','am','start','-n',pkg+'/dev.jamescullimore.dontgotobed.MainActivity');time.sleep(1)
 def capture(name):
  adb('shell','screencap','-p','/sdcard/dgtb-accessibility.png');adb('pull','/sdcard/dgtb-accessibility.png',str(a.output/name))
-launch();tap('World settings')
+launch();tap('Settings')
 # The dedicated recording emulator starts with defaults; refuse unexpected state.
 try:initial=prefs()
 except subprocess.CalledProcessError:initial={}
@@ -48,7 +48,7 @@ assert initial.get('buttonControls',0)==0 and initial.get('reduceMotion',0)==0, 
 try:
  tap('Button controls',True);tap('Reduce motion and flashes',True)
  current=prefs();assert current['buttonControls']==1 and current['reduceMotion']==1
- capture('01-settings.png');tap('Back',True);tap('Leo')
+ capture('01-settings.png');tap('Done',True);tap("LET'S PLAY")
  (a.output/'gameplay-tree.xml').write_text(E.tostring(ui(),encoding='unicode'))
  nodes={label:node(label) for label in ['Step left','Step right','Aim up','Aim down','Jump','Hit','Place','Health: 5 of 5 hearts']}
  density=int(re.findall(r'\d+',adb('shell','wm','density'))[-1])/160
@@ -61,12 +61,12 @@ try:
  tap('Game menu');assert node('Paused') is not None
  tap('Continue')
  launch();assert prefs()['buttonControls']==1 and prefs()['reduceMotion']==1
- tap('Leo');assert node('Step left') is not None
+ tap("LET'S PLAY");assert node('Step left') is not None
  capture('03-persisted-controls.png')
  (a.output/'result.json').write_text(json.dumps({'passed':True,'checks':['Both options persist after relaunch','Four directional actions exposed as enabled buttons, at least 56 dp','Jump, aim, place and turn controls respond without losing gameplay','Pause and continue remain reachable','Health exposed as one labeled value'],'limitations':'No actual TalkBack, Switch Access, largest-font or nonvisual gameplay test performed.'},indent=2))
  print('Accessibility control and persistence smoke checks passed.',flush=True)
 finally:
- launch();tap('World settings')
+ launch();tap('Settings')
  if prefs().get('buttonControls',0):tap('Button controls',True)
  if prefs().get('reduceMotion',0):tap('Reduce motion and flashes',True)
- tap('Back',True)
+ tap('Done',True)

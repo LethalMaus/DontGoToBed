@@ -22,7 +22,7 @@ import kotlin.math.floor
  * Not an Android ViewModel to avoid adding dependencies; it's a simple class remembered in Compose.
  */
 class GameViewModel(
-    val inventorySlots: Int = 7,
+    val inventorySlots: Int = 14,
     val inventoryStackLimit: Int = 20
 ) {
     val bag = PlayerInventory(inventorySlots, inventoryStackLimit)
@@ -31,6 +31,7 @@ class GameViewModel(
 
     init {
         addItemToInventory(ItemType.Block, 12, BlockMaterial.Grass)
+        bag.addStarterEquipment()
     }
 
     var paused: Boolean = false
@@ -92,6 +93,10 @@ class GameViewModel(
         playerBottomPx = bottomPx
     }
 
+    var isShocked: (String,Long)->Boolean = { _,_->false }
+    var electricPlayerHit: (Int)->Unit = {}
+    var electricEnemyHit: (String,Long)->Unit = { _,_-> }
+    var alienArrowHit: (Int,Int,Int,Boolean)->Boolean = { _,_,_,_->false }
     var remotePlayerDamage: (Int, Int) -> Unit = { _, _ -> }
     private data class Target(val id: Int, val x: Float, val other: Float, val bottom: Float)
     private fun targets(axis: WorldAxis, unitPx: Float): List<Target> = buildList {
@@ -149,6 +154,19 @@ class GameViewModel(
     private fun anySolidIn(tileMap: TileMap, cols: IntRange, rows: IntRange): Boolean {
         for (c in cols) for (r in rows) if (tileMap.get(c, r)) return true
         return false
+    }
+
+    private fun resolveEnemyBodies(kind:String,id:Long,oldX:Float,oldOther:Float,oldBottom:Float,
+                                   x:Float,other:Float,bottom:Float,unit:Float,span:Float):Triple<Float,Float,Float> {
+        var nx=x;var nz=other;var ny=bottom
+        fun visit(action:(Float,Float,Float)->Unit) {
+            for(z in _zombies.value) if(z.hp>0 && !(kind=="Z" && z.id==id)) action(z.worldXPx,z.otherAxisPx,z.bottomPx)
+            for(s in _skeletons.value) if(s.hp>0 && !(kind=="S" && s.id==id)) action(s.worldXPx,s.otherAxisPx,s.bottomPx)
+        }
+        visit { bx,bz,by -> nx=EnemyBodies.limit(oldX,nx,oldOther,oldBottom,bx,bz,by,unit*2,unit,unit*3,span,true,true,false) }
+        visit { bx,bz,by -> nz=EnemyBodies.limit(oldOther,nz,nx,oldBottom,bz,bx,by,unit,unit*2,unit*3,span,true,true,false) }
+        visit { bx,bz,by -> ny=EnemyBodies.limit(oldBottom,ny,nx,nz,by,bx,bz,unit*3,unit*2,unit,span,false,true,true) }
+        return Triple(nx,nz,ny)
     }
 
     // Basic horizontal collision for NPCs (no player/zombie pushback, just tile blocking)
@@ -520,6 +538,14 @@ class GameViewModel(
                 "P" -> upsertPotionSnapshot(e.id, e.along(axis) / 1000, e.height / 1000, e.item, e.other(axis) / 1000)
             }
         }
+        _skeletons.update { list -> list.map { s -> s.copy(electricArrows=entities.any { it.kind=="S" && it.id==s.id && it.item==ItemType.ElectricArrow }) } }
+        _arrows.update { list -> list.map { a -> a.copy(electric=entities.any { it.kind=="A" && it.id==a.id && it.item==ItemType.ElectricArrow }) } }
+    }
+
+    internal fun tugEntity(target: RopeTarget, p: RopePoint, axis: WorldAxis, unitPx: Float, pxToDp: (Float) -> androidx.compose.ui.unit.Dp) {
+        val x=p.along(axis)*unitPx;val other=p.other(axis)*unitPx
+        if(target.kind=="Z") _zombies.update { list -> list.map { z -> if(z.id!=target.id) z else z.copy(worldXPx=x,worldXDp=pxToDp(x),otherAxisPx=other,targetWorldXPx=x) } }
+        if(target.kind=="S") _skeletons.update { list -> list.map { z -> if(z.id!=target.id) z else z.copy(worldXPx=x,worldXDp=pxToDp(x),otherAxisPx=other,targetWorldXPx=x) } }
     }
 
     fun worldEntities(axis: WorldAxis, unitPx: Float): List<NetworkEntity> {
@@ -532,8 +558,8 @@ class GameViewModel(
         return buildList {
             _zombies.value.forEach { add(entry("Z", it.id, it.worldXPx, it.otherAxisPx, it.bottomPx, it.facingRight, it.hp, it.state.ordinal,
                 if (it.flashUntil > currentTimeMillis()) 1000 else 0)) }
-            _skeletons.value.forEach { add(entry("S", it.id, it.worldXPx, it.otherAxisPx, it.bottomPx, it.facingRight, it.hp, it.state.ordinal, (it.pulseAmount * 1000).toInt())) }
-            _arrows.value.forEach { add(entry("A", it.id, it.worldXPx, it.otherAxisPx, it.bottomPx)) }
+            _skeletons.value.forEach { add(entry("S", it.id, it.worldXPx, it.otherAxisPx, it.bottomPx, it.facingRight, it.hp, it.state.ordinal, (it.pulseAmount * 1000).toInt(),item=if(it.electricArrows) ItemType.ElectricArrow else ItemType.Arrow)) }
+            _arrows.value.forEach { add(entry("A", it.id, it.worldXPx, it.otherAxisPx, it.bottomPx,item=if(it.electric) ItemType.ElectricArrow else ItemType.Arrow)) }
             _potions.value.forEach { add(entry("P", it.id, it.col * unitPx, it.otherCol * unitPx, it.row * unitPx, item = it.type)) }
         }
     }
@@ -688,6 +714,7 @@ class GameViewModel(
 
     fun damageSkeleton(id: Long, unitPx: Float, amount: Int = 1) {
         var arrowSpawn: Triple<Int, Int, Int>? = null
+        var dropType=ItemType.Arrow
         _skeletons.update { list ->
             val newList = list.toMutableList()
             val idx = newList.indexOfFirst { it.id == id }
@@ -697,6 +724,7 @@ class GameViewModel(
                     s.hp = (s.hp - amount).coerceAtLeast(0)
                     s.flashUntil = currentTimeMillis() + 150L
                     if (s.hp <= 0) {
+                        dropType=if(s.electricArrows) ItemType.ElectricArrow else ItemType.Arrow
                         arrowSpawn = Triple(floor(s.worldXPx / unitPx).toInt(), floor(s.bottomPx / unitPx).toInt(), floor(s.otherAxisPx / unitPx).toInt())
                         newList.removeAt(idx)
                     } else {
@@ -708,12 +736,12 @@ class GameViewModel(
         }
         if (arrowSpawn != null) {
             skeletonJobs.remove(id)?.cancel()
-            spawnPotion(arrowSpawn.first, arrowSpawn.second, ItemType.Arrow, arrowSpawn.third)
+            spawnPotion(arrowSpawn.first, arrowSpawn.second, dropType, arrowSpawn.third)
         }
         purgeDefeatedEnemies()
     }
 
-    private fun spawnArrow(x: Float, y: Float, targetX: Float, targetY: Float, unitPx: Float, worldWidthPx: Float, ownerId: Long = 0L, otherAxisPx: Float = playerOtherAxisPx) {
+    private fun spawnArrow(x: Float, y: Float, targetX: Float, targetY: Float, unitPx: Float, worldWidthPx: Float, ownerId: Long = 0L, otherAxisPx: Float = playerOtherAxisPx, electric: Boolean = false) {
         val wrappedX = ((x % worldWidthPx) + worldWidthPx) % worldWidthPx
         val dx = targetX - wrappedX
         // Handle wrap around for arrow direction
@@ -727,7 +755,7 @@ class GameViewModel(
         val vX = if (mag > 0) (adjustedDx / mag) * velocity else velocity
         val vY = if (mag > 0) (dy / mag) * velocity else 0f
 
-        val arrow = Arrow(worldXPx = wrappedX, bottomPx = y, vX = vX, vY = vY, ownerId = ownerId, otherAxisPx = otherAxisPx)
+        val arrow = Arrow(worldXPx = wrappedX, bottomPx = y, vX = vX, vY = vY, ownerId = ownerId, otherAxisPx = otherAxisPx, electric=electric)
         _arrows.update { it + arrow }
         onSound(SoundEffect.Arrow)
     }
@@ -741,8 +769,8 @@ class GameViewModel(
         playerHeightPx: Float,
         worldWidthPx: Float
     ): Boolean {
-        val slot = inventory.getOrNull(selectedSlot.intValue)
-        if (slot?.type != ItemType.Arrow || slot.count <= 0) return false
+        val slot = inventory.getOrNull(selectedSlot.intValue) ?: return false
+        if (slot.type !in listOf(ItemType.Arrow,ItemType.ElectricArrow) || slot.count <= 0) return false
         if (!consumeSelectedItem()) return false
         spawnArrow(
             x = playerWorldXPx + playerWidthPx / 2f,
@@ -751,7 +779,7 @@ class GameViewModel(
             targetY = targetY,
             unitPx = unitPx,
             worldWidthPx = worldWidthPx,
-            ownerId = PLAYER_ARROW_OWNER_ID
+            ownerId = PLAYER_ARROW_OWNER_ID, electric=slot.type==ItemType.ElectricArrow
         )
         return true
     }
@@ -761,7 +789,7 @@ class GameViewModel(
         val along = (if (action.axis == WorldAxis.Latitude) action.latitude else action.longitude) / 1000f * unitPx
         val other = (if (action.axis == WorldAxis.Latitude) action.longitude else action.latitude) / 1000f * unitPx
         spawnArrow(along + widthPx / 2, action.height / 1000f * unitPx + heightPx * 0.7f,
-            targetX, targetY, unitPx, worldWidthPx, PLAYER_ARROW_OWNER_ID, other)
+            targetX, targetY, unitPx, worldWidthPx, PLAYER_ARROW_OWNER_ID, other, action.arguments.getOrNull(2)==ItemType.ElectricArrow.name)
         if (action.axis != hostAxis) _arrows.update { list -> list.dropLast(1) + list.last().let {
             it.copy(worldXPx = it.otherAxisPx, otherAxisPx = it.worldXPx, vX = it.otherVelocity,
                 otherVelocity = it.vX, targetWorldXPx = it.otherAxisPx)
@@ -806,8 +834,10 @@ class GameViewModel(
                         samePlane(p.other) && aabbOverlappingColumns(p.x, unitPx, widthPx).any { tileMap.wrap(it) == tileMap.wrap(col) } &&
                             row in aabbOverlappingRows(p.bottom, unitPx, heightPx)
                     }
-                    if (target != null) { damagePlayer(target.id, 1); hit = true }
+                    if (target != null) { if(arrow.electric) electricPlayerHit(target.id) else damagePlayer(target.id, 1); hit = true }
                 }
+
+                if(!hit && alienArrowHit(latitude,longitude,row,arrow.electric)) hit=true
 
                 // Hit Zombie
                 if (!hit) {
@@ -817,6 +847,7 @@ class GameViewModel(
                         val zCols = aabbOverlappingColumns(z.worldXPx, unitPx, widthPx)
                         val zRows = aabbOverlappingRows(z.bottomPx, unitPx, heightPx)
                         if (col in zCols && row in zRows) {
+                            if(arrow.electric) electricEnemyHit("Z",z.id)
                             damageZombie(z.id, unitPx, 1)
                             hit = true
                             break
@@ -833,6 +864,7 @@ class GameViewModel(
                         val sCols = aabbOverlappingColumns(s.worldXPx, unitPx, widthPx)
                         val sRows = aabbOverlappingRows(s.bottomPx, unitPx, heightPx)
                         if (col in sCols && row in sRows) {
+                            if(arrow.electric) electricEnemyHit("S",s.id)
                             damageSkeleton(s.id, unitPx, 1)
                             hit = true
                             break
@@ -864,6 +896,7 @@ class GameViewModel(
         val job = scope.launch {
             val rng = kotlin.random.Random.Default
             val sight = EnemySightTracker()
+            val pursuit = PursuitMemory()
             var local: SkeletonArcher? = _skeletons.value.firstOrNull { it.id == id }
             var vY = 0f
             var lastTimeNs = nanoTime()
@@ -878,22 +911,30 @@ class GameViewModel(
                 dtSec = dtSec.coerceIn(MIN_DT_SEC, MAX_DT_SEC)
                 lastTimeNs = nowNs
                 var s = local!!
+                if(isShocked("S",s.id)) {
+                    s.isAiming=false;s.pulseAmount=0f;s.lastShotTime=nowMs;s.aimStartTime=nowMs
+                    delay(16L);local=_skeletons.value.firstOrNull { it.id==id };continue
+                }
                 val target = nearestTarget(s.worldXPx, s.otherAxisPx, worldMap.activeAxis, unitPx, worldMap.width * unitPx)
                 val playerWorldXPx = target.x
                 val playerOtherAxisPx = target.other
                 val playerBottomPx = target.bottom
                 val previousX = s.worldXPx
+                val previousOther = s.otherAxisPx
+                val previousBottom = s.bottomPx
                 if (s.isEnteringWorld) {
                     val fixed = floor(s.otherAxisPx / unitPx).toInt()
                     tileMap.setActiveSlice(worldMap.activeAxis, fixed, fixed)
                     val drop = EnemySpawns.advanceDrop(tileMap, s.worldXPx, s.bottomPx, vY,
                         unitPx, playerWidthPx, dtSec, GRAVITY_TILES_PER_SEC2 * unitPx, MAX_FALL_TILES_PER_SEC * unitPx)
-                    s.bottomPx = drop.bottomPx
-                    vY = drop.velocityY
+                    val dropBody=resolveEnemyBodies("S",s.id,previousX,previousOther,previousBottom,s.worldXPx,s.otherAxisPx,drop.bottomPx,unitPx,tileMap.width*unitPx)
+                    val bodyLanded=dropBody.third>drop.bottomPx+.001f
+                    s.bottomPx = dropBody.third
+                    vY = if(bodyLanded) 0f else drop.velocityY
                     s.vY = vY
-                    s.isEnteringWorld = !drop.landed
-                    s.isAirborne = !drop.landed
-                    s.state = if (drop.landed) NpcState.Idle else NpcState.Airborne
+                    s.isEnteringWorld = !drop.landed && !bodyLanded
+                    s.isAirborne = !drop.landed && !bodyLanded
+                    s.state = if (drop.landed || bodyLanded) NpcState.Idle else NpcState.Airborne
                     s.worldXDp = pxToDp(s.worldXPx)
                     delay(16L)
                     local = _skeletons.value.firstOrNull { it.id == id }
@@ -901,7 +942,7 @@ class GameViewModel(
                 }
                 val canSeePlayer = sight.canSee(nowMs, worldMap, unitPx, s.worldXPx, s.otherAxisPx, s.bottomPx,
                     playerWorldXPx, playerOtherAxisPx, playerBottomPx, SKELETON_LOS_RANGE_UNITS)
-                val pursuing = hunting || canSeePlayer
+                val pursuing = pursuit.pursuing(nowMs,canSeePlayer,hunting)
                 if (pursuing) {
                     val (x, other, bottom) = NightPursuit.advance(s.worldXPx, s.otherAxisPx, s.bottomPx, worldMap, unitPx, dtSec, playerWorldXPx, playerOtherAxisPx)
                     s.worldXPx = x
@@ -989,7 +1030,7 @@ class GameViewModel(
                             unitPx,
                             worldWidthPx,
                             ownerId = s.id,
-                            otherAxisPx = s.otherAxisPx
+                            otherAxisPx = s.otherAxisPx, electric=s.electricArrows
                         )
                         s.lastShotTime = nowMs
                     }
@@ -1048,6 +1089,11 @@ class GameViewModel(
                     }
                 }
 
+                val body=resolveEnemyBodies("S",s.id,previousX,previousOther,previousBottom,s.worldXPx,s.otherAxisPx,s.bottomPx,unitPx,tileMap.width*unitPx)
+                s.worldXPx=body.first;s.otherAxisPx=body.second;s.bottomPx=body.third
+                if(s.bottomPx!=nextBottom && vY<0) vY=0f
+                if(pursuing && abs(shortestDx(previousX,s.worldXPx,tileMap.width*unitPx))>.01f)
+                    s.state=if(s.facingRight) NpcState.WalkRight else NpcState.WalkLeft
                 s.facingRight = EnemyFacing.afterMovement(previousX, s.worldXPx, tileMap.width * unitPx, s.facingRight)
                 // These are the same mutable entities already in the list. The UI frame clock
                 // observes their positions; copying the entire list here never emitted a new StateFlow value.
@@ -1067,7 +1113,7 @@ class GameViewModel(
         playerHeightPx: Float,
         pxToDp: (Float) -> androidx.compose.ui.unit.Dp
     ) {
-        val s = EnemySpawns.skeleton(tileMap, unitPx, pxToDp)
+        val s = EnemySpawns.skeleton(tileMap, unitPx, pxToDp).copy(electricArrows=kotlin.random.Random.nextInt(4)==0)
         addSkeleton(s)
         startSkeletonArcherJob(s.id, tileMap, unitPx, playerWidthPx, playerHeightPx, pxToDp)
     }
@@ -1106,22 +1152,30 @@ class GameViewModel(
                 dtSec = dtSec.coerceIn(MIN_DT_SEC, MAX_DT_SEC)
                 lastTimeNs = nowNs
                 var z = local!!
+                if(isShocked("Z",z.id)) {
+                    z.attackInProgress=false;z.nextAttackReadyAt=nowMs+ATTACK_COOLDOWN_MS
+                    delay(16L);local=_zombies.value.firstOrNull { it.id==id };continue
+                }
                 val target = nearestTarget(z.worldXPx, z.otherAxisPx, worldMap.activeAxis, unitPx, worldMap.width * unitPx)
                 val playerWorldXPx = target.x
                 val playerOtherAxisPx = target.other
                 val playerBottomPx = target.bottom
                 val previousX = z.worldXPx
+                val previousOther = z.otherAxisPx
+                val previousBottom = z.bottomPx
                 if (z.isEnteringWorld) {
                     val fixed = floor(z.otherAxisPx / unitPx).toInt()
                     tileMap.setActiveSlice(worldMap.activeAxis, fixed, fixed)
                     val drop = EnemySpawns.advanceDrop(tileMap, z.worldXPx, z.bottomPx, vY,
                         unitPx, widthPx, dtSec, GRAVITY_TILES_PER_SEC2 * unitPx, MAX_FALL_TILES_PER_SEC * unitPx)
-                    z.bottomPx = drop.bottomPx
-                    vY = drop.velocityY
+                    val dropBody=resolveEnemyBodies("Z",z.id,previousX,previousOther,previousBottom,z.worldXPx,z.otherAxisPx,drop.bottomPx,unitPx,tileMap.width*unitPx)
+                    val bodyLanded=dropBody.third>drop.bottomPx+.001f
+                    z.bottomPx = dropBody.third
+                    vY = if(bodyLanded) 0f else drop.velocityY
                     z.vY = vY
-                    z.isEnteringWorld = !drop.landed
-                    z.isAirborne = !drop.landed
-                    z.state = if (drop.landed) NpcState.Idle else NpcState.Airborne
+                    z.isEnteringWorld = !drop.landed && !bodyLanded
+                    z.isAirborne = !drop.landed && !bodyLanded
+                    z.state = if (drop.landed || bodyLanded) NpcState.Idle else NpcState.Airborne
                     z.worldXDp = pxToDp(z.worldXPx)
                     delay(16L)
                     local = _zombies.value.firstOrNull { it.id == id }
@@ -1423,6 +1477,10 @@ class GameViewModel(
                         z.facingRight = moveDelta > 0f
                     }
                 }
+
+                val body=resolveEnemyBodies("Z",z.id,previousX,previousOther,previousBottom,z.worldXPx,z.otherAxisPx,z.bottomPx,unitPx,tileMap.width*unitPx)
+                if(body.third>z.bottomPx && vY<0) vY=0f
+                z.worldXPx=body.first;z.otherAxisPx=body.second;z.bottomPx=body.third
 
         // Attack the player using the same 10-cell targeting pattern as the player.
                 run {

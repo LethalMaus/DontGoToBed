@@ -18,24 +18,26 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun AudioCreditsButton() {
     var open by remember { mutableStateOf(false) }
-    Button(onClick = { open = true }) { Text("Audio credits") }
+    Button(onClick = { open = true }) { Text(tr("Audio credits")) }
     if (open) AlertDialog(
         onDismissRequest = { open = false },
-        title = { Text("Audio credits") },
+        title = { Text(tr("Audio credits")) },
         text = {
             SelectionContainer {
                 Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Music", style = MaterialTheme.typography.titleMedium)
-                    Text("Music composed by Liborio Conti. Thank you for the music accompanying our adventure!")
+                    Text(tr("Music"), style = MaterialTheme.typography.titleMedium)
+                    Text(tr("Music composed by Liborio Conti. Thank you for the music accompanying our adventure!"))
                     Text("https://www.no-copyright-music.com/")
-                    Text("Music license: https://www.no-copyright-music.com/license/")
-                    Text("Sound effects", style = MaterialTheme.typography.titleMedium)
-                    Text("Sound effects sourced from Pixabay. Thank you to the contributing creators!")
+                    Text(tr("Music license") + ": https://www.no-copyright-music.com/license/")
+                    Text(tr("Sound effects"), style = MaterialTheme.typography.titleMedium)
+                    Text(tr("Sound effects sourced from Pixabay. Thank you to the contributing creators!"))
                     Text("https://pixabay.com/sound-effects/")
-                    Text("Pixabay Content License: https://pixabay.com/service/license-summary/")
+                    Text("Cat purring — TiesWijnen (CC0): https://freesound.org/s/364893/")
+                    Text("Hound howl — abhisheky948 (CC0): https://freesound.org/s/625499/")
+                    Text(tr("Pixabay Content License") + ": https://pixabay.com/service/license-summary/")
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { open = false }) { Text("Close") } }
+        confirmButton = { TextButton(onClick = { open = false }) { Text(tr("Close")) } }
     )
 }

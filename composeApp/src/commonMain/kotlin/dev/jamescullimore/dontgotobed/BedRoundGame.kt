@@ -6,8 +6,8 @@ import androidx.compose.runtime.setValue
 import kotlin.math.abs
 
 /** Host owns round objects; clients receive snapshots and idempotent, addressed rewards. */
-class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, private val send: (String) -> Unit = {}, private val now: () -> Long = ::currentTimeMillis) {
-    var cycle by mutableStateOf(MammyCycle())
+class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, private val send: (String) -> Unit = {}, private val now: () -> Long = ::currentTimeMillis, private val unlimited: Boolean = false) {
+    var cycle by mutableStateOf(MammyCycle(unlimited = unlimited))
     var mammy by mutableStateOf(WorldLayouts.randomMammy(map))
     var bed by mutableStateOf<HuntBed?>(null)
         private set
@@ -16,6 +16,10 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
     var roundId by mutableStateOf(nanoTime())
         private set
     var revision by mutableStateOf(0)
+        private set
+    var celebrationLocation by mutableStateOf<WorldLocation?>(null)
+        private set
+    var celebrationRemainingMs by mutableStateOf(0L)
         private set
     var isHost = true
     var selfId = 0
@@ -39,6 +43,8 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
 
     fun advance(delta: Long, forbidden: List<WorldLocation>): Boolean {
         if (!isHost) return false
+        celebrationRemainingMs = (celebrationRemainingMs - delta).coerceAtLeast(0)
+        if (celebrationRemainingMs == 0L) celebrationLocation = null
         val previous = cycle
         cycle = cycle.advance(delta)
         val newSearch = previous.safe && !cycle.safe
@@ -49,30 +55,52 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
             retryAt = 0L
             appliedGrants.clear(); grantReturns.clear(); returnedGrants.clear(); issuedGrants.clear(); lastHit.clear()
         }
-        if (cycle.hunting && !bedSpawned && cycle.elapsedMs >= retryAt) {
+        if (!cycle.safe && !bedSpawned && cycle.elapsedMs >= retryAt) {
             val candidate = HuntBedPlacement.find(map, forbidden + mammy)
             if (candidate != null) {
                 install(candidate)
                 bedSpawned = true
-                notify("A dangerous bed has appeared. Break it for a map and supplies!")
+                notify(tr("A dangerous bed has appeared. Break it for a map and supplies!"))
             }
             retryAt = cycle.elapsedMs + 1000
         }
         return newSearch
     }
 
+    /** Keep one independently placed bed for the search; attaching a rope never relocates it. */
+    fun ensureGuideBed(actor: Int): Boolean {
+        if (!isHost) return false
+        if (bed != null) return true
+        if (bedSpawned) return false
+        val owner = position(actor) ?: return false
+        val candidate = HuntBedPlacement.find(map, listOf(owner, mammy)) ?: return false
+        install(candidate)
+        bedSpawned = true
+        publish()
+        return true
+    }
+
     fun rescue(actor: Int = selfId) {
         if (!isHost) { send("RESCUE;$roundId"); return }
-        if (cycle.safe) return
+        if (cycle.safe || celebrationRemainingMs > 0) return
         val p = position(actor) ?: return
         if (!near(p, mammy, 4)) return
+        celebrationLocation = mammy
+        celebrationRemainingMs = 3200L
+        if(unlimited) {
+            mammy = WorldLayouts.randomMammy(map, excluding = mammy)
+            grant(actor, listOf(BedLoot(nanoTime(), ItemType.Potion, 1, p.latitude, p.longitude, p.row)))
+            publish()
+            notify(tr("Mammy gave you a potion. Keep exploring!"))
+            return
+        }
         cycle = cycle.found()
         install(null)
         loot = loot.filter { it.type != ItemType.Map }
         bag.removeAll(ItemType.Map)
         clearEnemies()
         publish()
-        notify("Found Mammy! Five peaceful minutes.")
+        notify(tr("Found Mammy! Five peaceful minutes."))
     }
 
     fun hit(lat: Int, lon: Int, row: Int, actor: Int = selfId) {
@@ -90,7 +118,7 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
             val items = listOf(ItemType.Map to 1, ItemType.Potion to 5, ItemType.Arrow to 10).mapIndexed { index, (type, count) ->
                 BedLoot(nanoTime(), type, count, map.wrap(b.latitude + index), b.longitude, b.row)
             }
-            grant(actor, items)
+            loot = loot + items
         }
         publish()
     }
@@ -126,7 +154,7 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
             if (remaining > 0) item.copy(count = remaining) else null
         }
         grantReturns[id] = overflow
-        notify("Bed supplies received${if (overflow.isEmpty()) "" else "; overflow dropped nearby"}")
+        notify(tr(if (overflow.isEmpty()) "Bed supplies received" else "Bed supplies received; overflow dropped nearby"))
         if (isHost) returnOverflow(selfId, id, overflow)
         else send("OVERFLOW;$roundId;$id;${encodeLoot(overflow)}")
     }
@@ -160,7 +188,7 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
     fun snapshot(): String {
         val b = bed
         val encodedBed = if (b == null) "_" else "${b.id},${b.latitude},${b.longitude},${b.row},${b.health}"
-        return "STATE;$roundId;${cycle.elapsedMs};${cycle.safe};${mammy.latitude},${mammy.longitude},${mammy.row};$encodedBed;${encodeLoot(loot)}"
+        return "STATE;$roundId;${cycle.elapsedMs};${cycle.safe};${mammy.latitude},${mammy.longitude},${mammy.row};$encodedBed;${encodeLoot(loot)};${cycle.unlimited};${celebrationLocation?.let { "${it.latitude},${it.longitude},${it.row}" } ?: "_"};$celebrationRemainingMs"
     }
     fun publish() { if (isHost) send(snapshot()) }
 
@@ -170,7 +198,7 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
             val parts = payload.split(';')
             val id = parts[1].toLong()
             if (!isHost && actor == 0 && parts[0] == "STATE") {
-                val nextCycle = MammyCycle(parts[2].toLong().coerceAtLeast(0), parts[3].toBooleanStrict())
+                val nextCycle = MammyCycle(parts[2].toLong().coerceAtLeast(0), parts[3].toBooleanStrict(), unlimited)
                 val m = parts[4].split(',').map(String::toInt)
                 val nextBed = if (parts[5] == "_") null else parts[5].split(',').let {
                     HuntBed(it[0].toLong(), it[1].toInt(), it[2].toInt(), it[3].toInt(), it[4].toInt())
@@ -179,6 +207,8 @@ class BedRoundGame(private val map: TileMap, private val bag: PlayerInventory, p
                 if (roundId != id) { appliedGrants.clear(); grantReturns.clear() }
                 if (roundId != id || nextCycle.safe) bag.removeAll(ItemType.Map)
                 if (!cycle.safe && nextCycle.safe) clearEnemies()
+                celebrationLocation = parts.getOrNull(8)?.takeIf { it != "_" }?.split(',')?.let { WorldLocation(it[0].toInt(), it[1].toInt(), it[2].toInt()) }
+                celebrationRemainingMs = parts.getOrNull(9)?.toLongOrNull()?.coerceIn(0, 3200) ?: 0
                 roundId = id
                 cycle = nextCycle
                 mammy = WorldLocation(m[0], m[1], m[2])

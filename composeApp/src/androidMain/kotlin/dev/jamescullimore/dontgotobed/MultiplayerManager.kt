@@ -121,12 +121,16 @@ actual class MultiplayerManager actual constructor(
     private val reconnecting = AtomicBoolean(false)
     @Volatile private var shouldKeepTrying = true
 
+    actual val discoveryName: String = newLanGameName()
+    private val lanDiscovery = LanDiscovery()
+
     actual fun start() {
         shouldKeepTrying = true
         if (isHost) startServer() else startClient()
     }
 
     actual fun stop() {
+        lanDiscovery.stop()
         shouldKeepTrying = false
         reconnecting.set(false)
         try {
@@ -260,6 +264,7 @@ actual class MultiplayerManager actual constructor(
         server = object : WebSocketServer(addr) {
             override fun onStart() {
                 Log.i(TAG, "Server started on ${address}")
+                if (shouldKeepTrying) lanDiscovery.advertise(discoveryName, port)
             }
             override fun onOpen(conn: WebSocket, handshake: ClientHandshake?) {
                 Log.i(TAG, "Client connected: ${conn.remoteSocketAddress}")

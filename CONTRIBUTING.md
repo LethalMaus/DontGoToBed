@@ -3,7 +3,7 @@
 ## Prerequisites
 
 Use JDK 21, the checked-in Gradle wrapper, Android SDK 36, and Xcode with the
-required iOS SDK on macOS. Android minimum is 24; iOS minimum is 15.0.
+required iOS SDK on macOS. Android minimum is 26; iOS minimum is 15.0.
 Set `sdk.dir` in ignored `local.properties` as needed. Never commit credentials,
 signing files, device logs or local SDK paths.
 
@@ -11,7 +11,7 @@ signing files, device logs or local SDK paths.
 
 The native players require these MP3 files before running:
 `menu`, `search1`, `search2`, `search3`, `search4`, `panic`, `jump`, `hit`, `place`,
-`arrow`, `damage_taken`, `drink`, `turn` (all with `.mp3` extensions).
+`arrow`, `damage_taken`, `drink`, `turn`, `dog_howl` (all with `.mp3` extensions).
 Supply licensed copies/replacements in `.jc/`, or extract the publisher's private
 handoff into the checkout to create `.jc/release-private/audio/`. Then run:
 
@@ -51,8 +51,7 @@ replace identifiers, family artwork/identity, store configuration and support de
 
 Run the Android unit tests above for shared gameplay changes. On macOS also compile
 and test iOS; `./gradlew :composeApp:iosSimulatorArm64Test` runs the native test suite.
-Two previously recorded native inventory assertions and a native test linker issue
-remain unverified; an Android pass is not proof of native test success.
+Run both suites; an Android pass alone is not proof of native test success.
 
 For multiplayer changes test both host directions, terrain edits, turns, reconnects,
 backgrounding and player death using the same build on all devices. The scripts

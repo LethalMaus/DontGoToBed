@@ -11,7 +11,7 @@ import dontgotobed.composeapp.generated.resources.Res
 import kotlinx.coroutines.delay
 
 internal enum class SoundEffect(val file: String) {
-    Jump("jump"), Hit("hit"), Place("place"), Arrow("arrow"), Hurt("damage_taken"), Drink("drink"), Turn("turn")
+    Jump("jump"), Hit("hit"), Place("place"), Arrow("arrow"), Hurt("damage_taken"), Drink("drink"), Turn("turn"), Purr("cat_purr"), Howl("dog_howl")
 }
 internal enum class MusicScene(val tracks: List<String>) {
     Menu(listOf("menu")), Search(listOf("search1", "search2", "search3", "search4")), Panic(listOf("panic"))
@@ -40,6 +40,9 @@ internal class GameAudio(private val create: (String) -> AudioVoice,
     var scene = MusicScene.Menu
     var options = AudioOptions()
     var active = true
+    var purrProximity = 0f
+    private var purr: AudioVoice? = null
+    private var purrGain = 0f
     private var playingScene: MusicScene? = null
     private var index = 0
     private var music: AudioVoice? = null
@@ -48,7 +51,7 @@ internal class GameAudio(private val create: (String) -> AudioVoice,
     private val nextVoice = mutableMapOf<SoundEffect, Int>()
     private fun voice(file: String) = create(resolve(file))
     fun prepareEffects() {
-        SoundEffect.entries.forEach { effect ->
+        SoundEffect.entries.filter { it != SoundEffect.Purr }.forEach { effect ->
             effects[effect] = List(2) { voice("${effect.file}.mp3") }
         }
     }
@@ -60,6 +63,14 @@ internal class GameAudio(private val create: (String) -> AudioVoice,
         nextVoice[effect] = (next + 1) % pool.size
     }
     fun tick() {
+        val target = if (active) purrProximity.coerceIn(0f,1f) * .24f else 0f
+        purrGain += (target-purrGain).coerceIn(-.025f,.025f)
+        if (purrGain > .001f && active && options.effects > 0) {
+            val sound = purr ?: voice("cat_purr.mp3").also { purr=it }
+            if(sound.remaining < .06f) sound.rewind()
+            sound.volume = purrGain * options.effects / 100f * (sound.remaining/.15f).coerceIn(0f,1f)
+            sound.play()
+        } else { purr?.volume=0f; purr?.pause() }
         effects.values.flatten().forEach { it.volume = if (active) options.effects / 100f else 0f }
         if (!active) {
             music?.pause()
@@ -85,6 +96,7 @@ internal class GameAudio(private val create: (String) -> AudioVoice,
         current.play()
     }
     fun close() {
+        purr?.close(); purr = null
         music?.close(); music = null
         effects.values.flatten().forEach { it.close() }
         effects.clear()
@@ -107,12 +119,12 @@ internal fun rememberGameAudio(options: AudioOptions, active: Boolean): GameAudi
 @Composable
 fun AudioSettings(options: AudioOptions, onChange: (AudioOptions) -> Unit) {
     Column {
-        Text("Music: ${options.music}%")
+        Text(tr("Music: {0}%", options.music))
         Slider(options.music.toFloat(), { onChange(options.copy(music = it.toInt())) },
-            valueRange = 0f..100f, modifier = Modifier.semantics { contentDescription = "Music volume" })
-        Text("Sound effects: ${options.effects}%")
+            valueRange = 0f..100f, modifier = Modifier.semantics { contentDescription = tr("Music volume") })
+        Text(tr("Sound effects: {0}%", options.effects))
         Slider(options.effects.toFloat(), { onChange(options.copy(effects = it.toInt())) },
-            valueRange = 0f..100f, modifier = Modifier.semantics { contentDescription = "Sound effects volume" })
+            valueRange = 0f..100f, modifier = Modifier.semantics { contentDescription = tr("Sound effects volume") })
         AudioCreditsButton()
     }
 }

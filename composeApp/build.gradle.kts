@@ -81,6 +81,9 @@ android {
 
     defaultConfig {
         applicationId = "dev.jamescullimore.dontgotobed"
+        val playtest = providers.gradleProperty("playtest").orElse("false").get().toBoolean()
+        if (playtest) applicationIdSuffix = ".playtest"
+        manifestPlaceholders["appLabel"] = if (playtest) "Don't Go To Bed · Playtest" else "@string/app_name"
         minSdk = 26
         targetSdk = libs.versions.android.targetSdk.get().toInt()
         versionCode = providers.gradleProperty("release.versionCode").orElse("1").get().toInt()

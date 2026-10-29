@@ -1,13 +1,15 @@
 Privacy policy — Android
 
 Who is responsible
-James Cullimore publishes Don't Go To Bed for Android (app identifier: dev.jamescullimore.dontgotobed). For support or privacy requests, contact info@jamescullimore.dev. Effective date: 2026-09-14.
+James Cullimore publishes Don't Go To Bed for Android (app identifier: dev.jamescullimore.dontgotobed). For support or privacy requests, contact info@jamescullimore.dev. Effective date: 2026-10-03.
 
 Playing the game
-No game account, real name, email address, or date of birth is required to play. The game stores world preferences on your device. Worlds, inventory, and progress belong to the current session and are not saved as a continuing world when you leave. We do not operate an online game backend. The app does not include advertising, public chat, social login, or gameplay analytics.
+No game account, real name, email address, or date of birth is required to play. The game stores world preferences on your device. Exploration worlds have three save slots on the host device, including terrain edits, the host’s inventory and position, equipment and the dog. Saves use local files with a previous-save recovery copy. Other game modes start fresh. Device backups may include these files according to your settings. We do not operate an online game backend. The app does not include advertising, public chat, social login, or gameplay analytics.
 
 Nearby multiplayer
-If you choose Host or Join, devices on the same local network exchange the selected character, a temporary peer identifier, network addresses, player positions, actions, and world state, including terrain, enemies, and pickups. The host device processes this information to run the shared game. World latitude and longitude are fictional game coordinates, not your geographic location. Multiplayer uses unencrypted local WebSocket connections; use a trusted network. It does not provide internet matchmaking. Session state ends when the session closes.
+If you choose Host or Join, devices on the same local network exchange the selected character, a temporary peer identifier, network addresses, player positions, actions, and world state, including terrain, enemies, and pickups. The host device processes this information to run the shared game. World latitude and longitude are fictional game coordinates, not your geographic location. Multiplayer uses unencrypted local WebSocket connections; use a trusted network. It does not provide internet matchmaking. Connections end when the session closes; saved exploration worlds remain on the host device.
+
+While hosting, the app advertises a temporary game name and connection details on the local network. Opening the Join panel searches for these nearby games. Discovery stops when that panel closes or the app goes into the background; advertising stops when hosting ends. No real name or location permission is needed.
 
 Device permissions and storage
 Android internet and network-state permissions support nearby multiplayer and optional purchase processing. The app does not request location, contacts, camera, microphone, or photos. Game preferences can be included in Android backup or device transfer according to your device settings. Purchase SDK caches and identifiers are excluded from the app's Android backup rules.

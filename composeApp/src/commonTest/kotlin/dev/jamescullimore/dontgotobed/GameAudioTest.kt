@@ -62,6 +62,17 @@ class GameAudioTest {
         r.audio.active = true; r.tick(); assertTrue(r.current.playing)
         r.audio.close(); assertTrue(r.voices.all { it.second.closed })
     }
+    @Test fun purringIsGentleFadesOutAndStopsWhenMutedOrBackgrounded() {
+        val r=Rig();r.audio.prepareEffects();r.audio.purrProximity=1f;r.tick(20)
+        val purr=r.voices.first { it.first=="cat_purr.mp3" }.second
+        assertTrue(purr.playing);assertTrue(purr.volume in .01f.. .2f)
+        r.audio.play(SoundEffect.Hit);r.tick();assertTrue(purr.volume<=.2f)
+        r.audio.purrProximity=0f;r.tick(20);assertFalse(purr.playing)
+        r.audio.purrProximity=1f;r.tick(20);r.audio.options=AudioOptions(effects=0);r.tick();assertFalse(purr.playing)
+        r.audio.options=AudioOptions();r.tick();assertTrue(purr.playing)
+        r.audio.active=false;r.tick();assertFalse(purr.playing)
+        r.audio.close();assertTrue(purr.closed)
+    }
     @Test fun volumesPersistAndInvalidValuesAreClamped() {
         val values = mutableMapOf<String, Int>()
         val store = object : SettingsStore {

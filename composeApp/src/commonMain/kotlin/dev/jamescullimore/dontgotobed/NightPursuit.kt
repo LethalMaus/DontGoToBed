@@ -27,10 +27,15 @@ internal object NightPursuit {
         }
         val dz = if (!sameRow && !tooCloseToEnter) shortestDx(other, playerOtherAxisPx, span) else 0f
         val distance = kotlin.math.sqrt(dx * dx + dz * dz)
-        if (distance <= 0.01f) return Triple(x, other, bottom)
+        if (distance <= 0.01f) {
+            // A fractional pixel below a row boundary is still the previous row.
+            // Finish that last fraction instead of leaving the enemy permanently off-plane.
+            return Triple(x, if (!sameRow && !tooCloseToEnter) playerOtherAxisPx else other, bottom)
+        }
         val step = minOf(distance, unit * 3 * dt)
         val nx = ((x + dx / distance * step) % span + span) % span
-        val nz = ((other + dz / distance * step) % span + span) % span
+        val nz = if (!sameRow && dz != 0f && step >= distance) playerOtherAxisPx
+            else ((other + dz / distance * step) % span + span) % span
         var floor = 0f
         for (c in columns(nx, unit, 2 * unit)) {
             for (o in columns(nz, unit, unit)) {

@@ -46,6 +46,8 @@ class SharedWorldAuthority(
     private val positions: () -> List<WorldLocation>,
     private val bed: () -> HuntBed? = { null },
     private val hitBed: (Int, Int, Int, Int) -> Unit = { _, _, _, _ -> },
+    private val hitAlien: (Int,Int,Int,Int,Int)->Boolean = { _,_,_,_,_-> false },
+    private val punchDamage: (Int) -> Int = { 1 },
     private val onWorldChanged: () -> Unit = {}
 ) {
     fun apply(actor: Int, action: WorldAction): String {
@@ -62,6 +64,14 @@ class SharedWorldAuthority(
                 (e.along(action.axis) / 1000..floor(e.along(action.axis) / 1000f + 1.999f).toInt()).any { view.wrap(it) == view.wrap(col) } &&
                 row in e.height / 1000 until e.height / 1000 + 3
         when (action.verb) {
+            "CRAFT" -> {
+                // Inventory is owned locally, as with placement; host approves station access only.
+                if (args.size != 1 || Crafting.recipes.none { it.id == args[0] }) return "false;_;_"
+                val claimed = RopePoint(action.latitude / 1000f, action.longitude / 1000f, action.height / 1000f)
+                val observed = RopePoint(known.latitude.toFloat(), known.longitude.toFloat(), known.row.toFloat())
+                if (Crafting.nearby(tileMap, claimed) == null || Crafting.nearby(tileMap, observed) == null) return "false;_;_"
+                return success()
+            }
             "TAKE" -> {
                 val id = args[0].toLong()
                 val e = entities().firstOrNull { it.kind == "P" && it.id == id } ?: return "false;_;_"
@@ -94,8 +104,9 @@ class SharedWorldAuthority(
                         onWorldChanged()
                         return if (damage.destroyed) success(ItemType.Block, damage.material) else success()
                     }
+                    if(hitAlien(actor,lat,lon,row,punchDamage(actor))) return success()
                     val enemy = entities().firstOrNull { it.kind in listOf("Z", "S") && occupies(it, col, row) } ?: return "false;_;_"
-                    if (enemy.kind == "Z") vm.damageZombie(enemy.id, unitPx) else vm.damageSkeleton(enemy.id, unitPx)
+                    if (enemy.kind == "Z") vm.damageZombie(enemy.id, unitPx, punchDamage(actor).coerceIn(1,4)) else vm.damageSkeleton(enemy.id, unitPx, punchDamage(actor).coerceIn(1,4))
                     return success()
                 }
                 val material = BlockMaterial.entries[args[2].toInt()]

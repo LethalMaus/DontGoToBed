@@ -1,0 +1,47 @@
+Datenschutzerklärung — Android
+
+Verantwortlicher
+James Cullimore veröffentlicht Don't Go To Bed für Android (App-Kennung: dev.jamescullimore.dontgotobed). Bei Support- oder Datenschutzanfragen: info@jamescullimore.dev. Gültig seit: 2026-10-03.
+
+Spielen
+Zum Spielen sind weder ein Spielkonto noch echter Name, E-Mail-Adresse oder Geburtsdatum erforderlich. Das Spiel speichert Welteinstellungen auf deinem Gerät. Erkundungswelten haben drei Speicherplätze auf dem Gastgebergerät, einschließlich Geländeänderungen, Inventar und Position des Gastgebers, Ausrüstung und Hund. Lokale Dateien enthalten eine vorherige Wiederherstellungskopie. Andere Spielmodi beginnen neu. Gerätesicherungen können diese Dateien gemäß deinen Einstellungen enthalten. Wir betreiben keinen Online-Spielserver. Die App enthält keine Werbung, keinen öffentlichen Chat, keine Anmeldung über soziale Netzwerke und keine Spielanalyse.
+
+Mehrspieler im lokalen Netzwerk
+Bei Spiel erstellen oder Beitreten tauschen Geräte im selben lokalen Netzwerk die ausgewählte Figur, eine vorübergehende Spielerkennung, Netzwerkadressen, Positionen, Aktionen und den Weltzustand einschließlich Gelände, Gegnern und Gegenständen aus. Das Gastgebergerät verarbeitet diese Daten für das gemeinsame Spiel. Breiten- und Längengrad der Welt sind erfundene Spielkoordinaten und nicht dein geografischer Standort. Mehrspieler nutzt unverschlüsselte lokale WebSocket-Verbindungen; verwende ein vertrauenswürdiges Netzwerk. Es gibt keine Spielersuche über das Internet. Verbindungen enden beim Schließen der Sitzung; gespeicherte Erkundungswelten bleiben auf dem Gastgebergerät.
+
+Beim Erstellen einer Partie gibt die App einen vorübergehenden Spielnamen und Verbindungsdaten im lokalen Netzwerk bekannt. Beim Öffnen von Beitreten sucht sie nach diesen Spielen. Die Suche endet beim Schließen des Fensters oder wenn die App in den Hintergrund wechselt; die Bekanntgabe endet, wenn das Gerät keine Partie mehr hostet. Ein echter Name oder eine Standortberechtigung ist nicht erforderlich.
+
+Berechtigungen und Speicherung
+Android-Berechtigungen für Internet und Netzwerkstatus ermöglichen lokalen Mehrspieler und freiwillige Käufe. Die App fordert keinen Standort, Kontakte, Kamera, Mikrofon oder Fotos an. Spieleinstellungen können je nach Geräteeinstellungen in Android-Sicherungen oder Geräteübertragungen enthalten sein. Caches und Kennungen des Kauf-SDK sind von den Android-Sicherungsregeln der App ausgeschlossen.
+
+Freiwillige Trinkgelder
+Alle Figuren und das gesamte Spiel sind kostenlos. Erwachsene können über Google Play ein freiwilliges, wiederholbares, einmaliges Trinkgeld geben. Trinkgelder schalten keine Inhalte oder Vorteile frei und sind keine Abonnements. RevenueCat wird erst nach Bestehen der Erwachsenenabfrage und bei konfiguriertem Kaufschlüssel eingerichtet. Schon das Öffnen dieser Seite kann RevenueCat und den Store kontaktieren, auch ohne abgeschlossenen Kauf.
+
+Kaufinformationen
+Google Play verarbeitet Zahlungsdaten; wir erhalten keine Kartendaten. RevenueCat verarbeitet Kaufverlauf und Transaktionskennungen, eine anonyme App-Nutzerkennung, Produkt- und Preisinformationen sowie notwendige technische Angaben wie App-/Betriebssystemversion, Sprache und Netzwerkinformationen. Dies dient der Belegprüfung, Kaufunterstützung, Betrugsprävention und Kaufberichten im RevenueCat-Dashboard. Wir verknüpfen weder Figur, Spielverlauf, Namen noch E-Mail mit RevenueCat und aktivieren keine Werbeattributionsdienste. Ein lokaler Hinweis auf ein ausstehendes Trinkgeld kann eine noch nicht genehmigte Zahlung erklären.
+
+Supportnachrichten
+Wenn du uns kontaktierst, erhalten wir deine E-Mail-Adresse und die gesendeten Informationen. Wir nutzen sie zur Beantwortung, Fehlerprüfung oder Bearbeitung von Datenschutzanfragen. Sende keine Passwörter, Kartendaten oder unnötigen personenbezogenen Angaben über Kinder. Supportnachrichten werden höchstens 12 Monate nach Abschluss der jeweiligen Anfrage gespeichert und dann gelöscht, sofern keine gesetzliche Pflicht eine längere Aufbewahrung verlangt.
+
+Kinder und Familien
+Kinder können spielen, ohne die freiwillige Unterstützungsseite zu öffnen. Käufe sind durch eine Erwachsenenabfrage sowie die Kauf- und elterlichen Genehmigungskontrollen des Stores geschützt. Wir bitten Kinder nicht, Profile anzulegen, Inhalte hochzuladen oder persönliche Daten zu senden. Eltern oder Sorgeberechtigte können uns wegen Informationen kontaktieren, die ein Kind möglicherweise übermittelt hat.
+
+Warum Daten verarbeitet werden
+Wir verarbeiten Daten, soweit es für das Spiel, gewünschte Käufe oder Support, Betrugsprävention und gesetzliche Pflichten erforderlich ist. Soweit anwendbar, sind Rechtsgrundlagen die Erbringung der gewünschten Leistung, unsere berechtigten Interessen an Betrieb, Schutz und Beantwortung von Anfragen sowie rechtliche Verpflichtungen. Käufe sind keine Voraussetzung zum Spielen. Berechtigungen lassen sich in den Geräteeinstellungen ändern.
+
+Aufbewahrung und Löschung
+Beim Verlassen endet der vorübergehende Sitzungszustand. Das Entfernen der App entfernt lokale Daten, vorbehaltlich aufbewahrter Gerätesicherungen. Pseudonyme Kauf- und Transaktionsdaten behalten wir grundsätzlich höchstens 3 Jahre nach dem letzten Kauf und löschen oder anonymisieren sie danach. Gesetzlich erforderliche Abrechnungs- oder Buchhaltungsdaten können während der jeweiligen gesetzlichen Frist länger aufbewahrt werden. Google Play und RevenueCat verarbeiten Daten zusätzlich nach eigenen Datenschutz- und Aufbewahrungsregeln. Store-Transaktionsdaten können entsprechend dessen rechtlichen Anforderungen gespeichert bleiben. Das Entfernen der App löscht diese Aufzeichnungen nicht und storniert keine ausstehende Genehmigung. Für Auskunft, Berichtigung oder Löschung der von uns kontrollierten Daten: info@jamescullimore.dev. Zum Auffinden eines anonymen Kaufs können begrenzte Transaktionsangaben nötig sein; sende niemals Zahlungszugangsdaten.
+
+Anbieter und internationale Verarbeitung
+Google Play und RevenueCat verarbeiten Daten nach ihren Bedingungen und Datenschutzhinweisen. Daten können außerhalb deines Landes, auch in den USA, unter den anwendbaren Übermittlungsgarantien verarbeitet werden. Wir verkaufen keine personenbezogenen Daten und nutzen sie nicht für gezielte Werbung. Diese Website verwendet keine Analyseskripte, Werbepixel, Cookies oder externen Schriftarten. Sie wird auf GitHub Pages gehostet. Die Hosting-Infrastruktur kann Anfragelogs wie IP-Adressen zur Bereitstellung und Absicherung der Seiten verarbeiten. GitHub behandelt diese nach seiner Datenschutzerklärung.
+
+Wahlmöglichkeiten und Rechte
+Du kannst allein spielen, Mehrspieler verlassen, die Unterstützungsseite nicht öffnen und auf Trinkgelder verzichten. Je nach Aufenthaltsort hast du möglicherweise Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung oder Widerspruch, eine Datenkopie oder Beschwerde bei der zuständigen Datenschutzbehörde. Kontakt: info@jamescullimore.dev. Dies ändert weder storeverwaltete Erstattungen noch dessen Aufbewahrungspflichten.
+
+Änderungen
+Bei geänderten Praktiken aktualisieren wir diese Seite und ihr Datum. Wesentliche Änderungen teilen wir mit, soweit erforderlich. Die Erklärung soll die tatsächlich im Store angebotene App-Version beschreiben.
+
+Datenschutzhinweise der Anbieter
+RevenueCat: https://www.revenuecat.com/privacy-policy
+GitHub: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+Google Play: https://policies.google.com/privacy

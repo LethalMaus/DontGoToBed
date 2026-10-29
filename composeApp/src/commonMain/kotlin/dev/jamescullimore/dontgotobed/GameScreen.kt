@@ -1,8 +1,11 @@
 package dev.jamescullimore.dontgotobed
 
+import androidx.compose.foundation.layout.PaddingValues
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -15,11 +18,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -128,7 +138,7 @@ private fun ActionIcon(kind: ActionIconKind, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun GameScreen(
+internal fun GameScreen(
     player: Player,
     initialIsHostSelected: Boolean? = null,
     initialHostIp: String = MultiplayerManager.DEFAULT_HOST_IP,
@@ -137,22 +147,26 @@ fun GameScreen(
     // Test launch only; Android entry point rejects this option in non-debuggable builds.
     debugDropOnMammy: Boolean = false,
     debugBed: Int = 0,
+    debugAdventure: Int = 0,
     paused: Boolean = false,
-    accessibility: AccessibilityOptions = AccessibilityOptions()
+    accessibility: AccessibilityOptions = AccessibilityOptions(),
+    outfit: PlayerOutfit = PlayerOutfit.Original,
+    restoredWorld: SavedWorld? = null,
+    saves: WorldSaveController? = null
 ) {
     var runId by remember { mutableIntStateOf(0) }
-    var sessionConfig by remember(worldConfig) { mutableStateOf(worldConfig) }
+    var sessionConfig by remember(worldConfig) { mutableStateOf(if (worldConfig.exploration) worldConfig.copy(horizontalSize = ExplorationWorld.SIZE, portalSeed = if (worldConfig.portalSeed == 0 && restoredWorld == null && initialIsHostSelected != false && debugAdventure == 0) kotlin.random.Random.nextInt(1, Int.MAX_VALUE) else worldConfig.portalSeed) else worldConfig) }
     androidx.compose.runtime.key(runId, sessionConfig) {
         GameSession(player, initialIsHostSelected, initialHostIp, sessionConfig, mp,
-            debugDropOnMammy && runId == 0, if (runId == 0) debugBed else 0, paused, onDeath = { runId++ }, onWorldConfig = { sessionConfig = it }, accessibility = accessibility)
+            debugDropOnMammy && runId == 0, if (runId == 0) debugBed else 0, debugAdventure, paused, onDeath = { runId++ }, onWorldConfig = { sessionConfig = it }, accessibility = accessibility, outfit = outfit, restoredWorld = restoredWorld, saves = saves)
     }
 }
 
 @Composable
 private fun GameSession(
     player: Player, initialIsHostSelected: Boolean?, initialHostIp: String,
-    worldConfig: WorldConfig, mp: MultiplayerManager?, debugDropOnMammy: Boolean, debugBed: Int,
-    paused: Boolean, onDeath: () -> Unit, onWorldConfig: (WorldConfig) -> Unit, accessibility: AccessibilityOptions
+    worldConfig: WorldConfig, mp: MultiplayerManager?, debugDropOnMammy: Boolean, debugBed: Int, debugAdventure: Int,
+    paused: Boolean, onDeath: () -> Unit, onWorldConfig: (WorldConfig) -> Unit, accessibility: AccessibilityOptions, outfit: PlayerOutfit, restoredWorld: SavedWorld?, saves: WorldSaveController?
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val systemReducedMotion = rememberSystemReducedMotion()
@@ -162,6 +176,12 @@ private fun GameSession(
         // Lightweight state holder moved out of the composable to simplify this file
         val audio = LocalGameAudio.current
         val vm = remember { GameViewModel() }
+        val equipment = remember { PlayerEquipment() }
+        val shocks = remember { ShockGame() }
+        val combatMotion = remember { CombatMotion() }
+        val peerBlocking = remember { androidx.compose.runtime.mutableStateMapOf<Int,Boolean>() }
+        val peerWorldAxes = remember { androidx.compose.runtime.mutableStateMapOf<Int, WorldAxis>() }
+        val peerEquipment = remember { androidx.compose.runtime.mutableStateMapOf<Int, EquipmentLoadout>() }
         androidx.compose.runtime.DisposableEffect(vm) { onDispose { vm.clear() } }
 
         var isHostSelected by remember { mutableStateOf<Boolean?>(initialIsHostSelected) }
@@ -175,14 +195,15 @@ private fun GameSession(
         var connectionStatus by remember { mutableStateOf(false) }
         var hostIp by remember { mutableStateOf(initialHostIp) }
 
+        val viewportHeight = maxHeight
         val unit = 15.dp
         val foundationRows = WorldViewport.foundationRows(maxWidth.value, maxHeight.value)
         val foundationHeight = unit * (WorldViewport.BLOCK_CELLS * foundationRows)
         val step = 16.dp
         val playerWidth = unit * 2
         val playerHeight = unit * 3
-        val centerX = (maxWidth - playerWidth) / 2
-        val screenWidth = maxWidth
+        var cameraZoom by remember { mutableFloatStateOf(1f) }
+        val screenWidth = maxWidth / cameraZoom
 
         var joystickX by remember { mutableFloatStateOf(0f) }
         var joystickY by remember { mutableFloatStateOf(0f) }
@@ -204,6 +225,17 @@ private fun GameSession(
 
         // (moved below state declarations where helpers/vars are available)
 
+        var bowSequence by remember { mutableIntStateOf(0) }
+        var drawingBow by remember { mutableStateOf(false) }
+        var bowFacingRight by remember { mutableStateOf(false) }
+        LaunchedEffect(bowSequence) {
+            if (bowSequence > 0) { drawingBow = true; delay(220); drawingBow = false }
+        }
+        var consumeSequence by remember { mutableIntStateOf(0) }
+        var consuming by remember { mutableStateOf(false) }
+        LaunchedEffect(consumeSequence) {
+            if (consumeSequence > 0) { consuming = true; delay(850); consuming = false }
+        }
         var playerHp by remember { mutableIntStateOf(5) }
         var previousHp by remember { mutableIntStateOf(5) }
         LaunchedEffect(playerHp) {
@@ -216,15 +248,12 @@ private fun GameSession(
         val inventoryStackLimit = vm.inventoryStackLimit
         val inventory = vm.inventory
         var isInventoryOpen by remember { mutableStateOf(false) }
+        var isCraftingOpen by remember { mutableStateOf(false) }
+        var craftingPending by remember { mutableStateOf(false) }
         var isShapePickerOpen by remember { mutableStateOf(false) }
 
-        fun playerSpriteResource(character: Player, walking: Boolean): DrawableResource {
-            return when (character) {
-                Player.Leo -> Res.drawable.leo_front
-                Player.Ian -> if (walking) Res.drawable.ian_walk else Res.drawable.ian_side
-                Player.Papa -> if (walking) Res.drawable.papa_walk else Res.drawable.papa_side
-            }
-        }
+        fun playerSpriteResource(character: Player, walking: Boolean, appearance: PlayerOutfit = outfit): DrawableResource =
+            characterSide(character, walking, appearance)
 
         fun playerSpriteScaleX(character: Player, facingRight: Boolean): Float {
             return when (character) {
@@ -241,7 +270,7 @@ private fun GameSession(
         LaunchedEffect(Unit) {
             vm.playerDamage.collect { dmg ->
                 if (dmg > 0) {
-                    playerHp = (playerHp - dmg).coerceAtLeast(0)
+                    playerHp = (playerHp - equipment.damage(dmg)).coerceAtLeast(0)
                     playerFlashUntil = currentTimeMillis() + 150L
                 }
             }
@@ -255,9 +284,10 @@ private fun GameSession(
                 run {
                     val w = worldConfig.horizontalSize
                     val h = worldConfig.height
-                    val map = TileMap(w, h)
+                    val map = TileMap(w, h, exploration = worldConfig.exploration, portalSeed = worldConfig.portalSeed)
                     // Ground exists through every longitude, so switching movement axis is safe.
-                    WorldLayouts.populate(map)
+                    if (restoredWorld != null && initialIsHostSelected != false) map.applyNetworkBlocks(restoredWorld.blocks.map { it.id to it },reset=true)
+                    else if (worldConfig.exploration) ExplorationWorld.populate(map) else WorldLayouts.populate(map)
                     map
                 }
             )
@@ -270,17 +300,29 @@ private fun GameSession(
         fun pxToDp(px: Float): Dp = with(density) { px.toDp() }
 
         // Player state
-        var playerWorldXDp by remember { mutableStateOf(0.dp) } // position along the currently active horizontal axis
+        var playerWorldXDp by remember { mutableStateOf(if (worldConfig.exploration) unit * 50 else 0.dp) } // position along the currently active horizontal axis
         var playerOtherAxisDp by remember { mutableStateOf(unit * 10) } // Start beside the first district.
         var activeWorldAxis by remember { mutableStateOf(WorldAxis.Latitude) }
-        val bedRound = remember(tileMap) { BedRoundGame(tileMap, vm.bag, send = { mp?.sendRoundEvent(it) }) }
+        val playerLatitude by rememberUpdatedState(floor(xDpToPx(if (activeWorldAxis == WorldAxis.Latitude) playerWorldXDp else playerOtherAxisDp) / unitPx).toInt())
+        val playerLongitude by rememberUpdatedState(floor(xDpToPx(if (activeWorldAxis == WorldAxis.Longitude) playerWorldXDp else playerOtherAxisDp) / unitPx).toInt())
+        val currentBiome by rememberUpdatedState(if (worldConfig.exploration) ExplorationWorld.biome(playerLatitude, playerLongitude) else null)
+        val centerX = if (currentBiome != null) {
+            val origin = ExplorationWorld.origin(currentBiome!!).along(activeWorldAxis)
+            val length = if (activeWorldAxis == WorldAxis.Latitude) ExplorationWorld.REGION else ExplorationWorld.REGION_DEPTH
+            val left = unit * (origin + ExplorationWorld.BORDER)
+            val right = unit * (origin + length - ExplorationWorld.BORDER)
+            playerWorldXDp - (playerWorldXDp - (screenWidth - playerWidth) / 2).coerceIn(left, maxOf(left, right - screenWidth))
+        } else (screenWidth - playerWidth) / 2
+        val specials = remember(tileMap) { SpecialGame(tileMap) }
+        val bedRound = remember(tileMap) { BedRoundGame(tileMap, vm.bag, send = { mp?.sendRoundEvent(it) }, unlimited = worldConfig.unlimited) }
         var cycle by bedRound::cycle
         var mammyLocation by bedRound::mammy
         androidx.compose.runtime.SideEffect { audio?.scene = if (cycle.hunting) MusicScene.Panic else MusicScene.Search }
         val hasFoundMammy = cycle.safe
         val mammyGoalCol by rememberUpdatedState(mammyLocation.along(activeWorldAxis))
         val mammyGoalBottomRow = mammyLocation.row
-        val mammyVisible by rememberUpdatedState(!cycle.safe && mammyLocation.intersects(
+        val mammyVisible by rememberUpdatedState(!cycle.safe && (!worldConfig.exploration ||
+            ExplorationWorld.biome(mammyLocation.latitude, mammyLocation.longitude) == currentBiome) && mammyLocation.intersects(
             activeWorldAxis,
             ((floor(xDpToPx(playerOtherAxisDp) / unitPx).toInt() % tileMap.width) + tileMap.width) % tileMap.width,
             tileMap.width, 2
@@ -295,9 +337,13 @@ private fun GameSession(
         val turnDirection = if (turnFromAxis == WorldAxis.Latitude) 1f else -1f
         val paperFrame = PaperTurnFrame(if (isAxisTransitioning && !reduceMotion) paperProgress.value else 1f)
         var selectedShape by remember { mutableStateOf(BlockShape.Square) }
-        val skyColor = skyForAxis(activeWorldAxis, cycle.darkness)
+        val skyColor = currentBiome?.let { androidx.compose.ui.graphics.lerp(it.sky, Color(0xFF101624), cycle.darkness * 0.8f) } ?: skyForAxis(activeWorldAxis, cycle.darkness)
         var heightPx by remember { mutableStateOf(0f) } // vertical bottom height in px above ground
         var isJumping by remember { mutableStateOf(false) }
+        val playableHeight = maxHeight-foundationHeight
+        val cameraBottomPx by rememberUpdatedState(WorldCamera.bottom(heightPx,
+            with(density) { (maxHeight - foundationHeight).toPx() },
+            worldConfig.height * unitPx, cameraZoom))
 
         // Select the plane before rendering/physics observe this composition.
         run {
@@ -309,9 +355,15 @@ private fun GameSession(
 
         var lastDirection by remember { mutableStateOf(Direction.Right) }
         var syncingWorld by remember { mutableStateOf(initialIsHostSelected == false) }
-        val isPaused by rememberUpdatedState(paused || syncingWorld)
+        val isPaused by rememberUpdatedState(paused || syncingWorld || specials.event?.intro == true || ((isInventoryOpen || isCraftingOpen) && mp == null))
         val movementClock = remember { PlayerPhysicsClock() }
         val verticalClock = remember { PlayerPhysicsClock() }
+        val isParalyzed = shocks.active("P",(mp?.getSelfId() ?: 0).toLong())
+        val controlsBlocked by rememberUpdatedState(isPaused || isCraftingOpen || isParalyzed || specials.event?.actor == (mp?.getSelfId() ?: 0))
+        LaunchedEffect(isPaused) {
+            while(!isPaused) { delay(16);combatMotion.tick(16) }
+        }
+        LaunchedEffect(isParalyzed) { if(isParalyzed) { joystickX=0f;joystickY=0f;equipment.blocking=false } }
         androidx.compose.runtime.DisposableEffect(isPaused, isAxisTransitioning) {
             movementClock.reset()
             verticalClock.reset()
@@ -327,7 +379,7 @@ private fun GameSession(
             while (connectionStatus && isHostSelected == false) {
                 delay(3000L)
                 // The client may choose a character before the host attaches its gameplay listener.
-                if (syncingWorld) mp?.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height}")
+                if (syncingWorld) mp?.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height};${worldConfig.exploration};${worldConfig.unlimited};${worldConfig.portalSeed}")
             }
         }
 
@@ -335,6 +387,11 @@ private fun GameSession(
         val peersState = vm.peersState
 
         // Lightweight notifications banner (join/leave/connection)
+        var hintRequest by remember { mutableIntStateOf(0) }
+        var showTemporaryHint by remember { mutableStateOf(false) }
+        LaunchedEffect(hintRequest) {
+            if (hintRequest > 0) { showTemporaryHint = true; delay(3500); showTemporaryHint = false }
+        }
         val notices = vm.notices
         fun pushNotice(text: String) { vm.pushNotice(text) }
 
@@ -352,6 +409,169 @@ private fun GameSession(
                 val lon = peer.longitude
                 if (lat == null || lon == null) null else WorldLocation(lat, lon, floor(peer.targetHeightPx / unitPx).toInt())
             }
+        }
+        val alien = remember(tileMap) { AlienGame(tileMap) }
+        val companion = remember(tileMap) { CompanionGame(tileMap) }
+        val dog = remember(tileMap) { DogGame(tileMap) }
+        val hazardDamage = remember(tileMap) { HazardDamageClock() }
+        fun localRopePoint() = RopePoint(
+            xDpToPx(if(activeWorldAxis==WorldAxis.Latitude) playerWorldXDp else playerOtherAxisDp)/unitPx,
+            xDpToPx(if(activeWorldAxis==WorldAxis.Longitude) playerWorldXDp else playerOtherAxisDp)/unitPx,
+            heightPx/unitPx)
+        val hazardContacts by rememberUpdatedState(BiomeHazards.contacts(tileMap, localRopePoint()))
+        var vineSwing by remember { mutableStateOf<VineSwing?>(null) }
+        var vineStand by remember { mutableStateOf<SwingVine?>(null) }
+        var vineRegrabAfter by remember { mutableLongStateOf(0L) }
+        val peerSwings = remember { androidx.compose.runtime.mutableStateMapOf<Int,VineSwing>() }
+        dog.isHost = isHostSelected != false
+        dog.selfId = bedRound.selfId
+        dog.players = { companion.players() }
+        dog.send = { mp?.sendRoundEvent(it) }
+        dog.found = { actor, point ->
+            if(actor==bedRound.selfId || (!worldConfig.exploration || ExplorationWorld.biome(point)==currentBiome) &&
+                kotlin.math.abs(wrappedDelta(localRopePoint().lat,point.lat,tileMap.width))<21 && kotlin.math.abs(wrappedDelta(localRopePoint().lon,point.lon,tileMap.depth))<21) {
+                audio?.play(SoundEffect.Howl)
+                pushNotice(tr("You found the coonhound! A new friend follows you."))
+            }
+        }
+        companion.isHost = isHostSelected != false
+        companion.selfId = bedRound.selfId
+        companion.players = {
+            buildMap {
+                if(playerHp>0) put(bedRound.selfId,localRopePoint())
+                peersState.forEach { (id,p) -> if(p.hp>0 && p.latitudeMilli!=null && p.longitudeMilli!=null)
+                    put(id,RopePoint(p.latitudeMilli!!/1000f,p.longitudeMilli!!/1000f,p.targetHeightPx/unitPx)) }
+            }
+        }
+        alien.isHost = isHostSelected != false
+        alien.players = {
+            companion.players().mapValues { (id,p) -> AlienPlayer(p,
+                if(id==bedRound.selfId) activeWorldAxis else peerWorldAxes[id] ?: WorldAxis.Latitude,
+                if(id==bedRound.selfId) lastDirection.isFacingRight() else peersState[id]?.facingRight ?: true) }
+        }
+        alien.send = { mp?.sendRoundEvent(it) }
+        alien.notice = { pushNotice(it) }
+        shocks.isHost=isHostSelected!=false
+        shocks.send={ mp?.sendRoundEvent(it) }
+        vm.isShocked={kind,id->shocks.active(kind,id)}
+        alien.isShocked={shocks.active("E",0)}
+        fun electricHit(id: Int,raw: Int=1) {
+            val blocked=if(id==bedRound.selfId) equipment.loadout.shield && equipment.blocking
+                else peerEquipment[id]?.shield==true && peerBlocking[id]==true
+            if(blocked) return
+            shocks.apply("P",id.toLong())
+            if(id==bedRound.selfId) playerHp=(playerHp-equipment.damage(raw)).coerceAtLeast(0)
+            else mp?.sendRoundEvent("DAMAGE;${nanoTime()};$id;$raw")
+        }
+        alien.damage = { id,raw -> electricHit(id,raw) }
+        vm.electricPlayerHit={ electricHit(it) }
+        vm.electricEnemyHit={kind,id->shocks.apply(kind,id)}
+        vm.alienArrowHit={lat,lon,row,electric->
+            val hit=alien.arrowHit(lat,lon,row,electric)
+            if(hit && electric && alien.state?.hp!=0) shocks.apply("E",0)
+            hit
+        }
+        specials.isHost=isHostSelected!=false
+        specials.selfId=bedRound.selfId
+        specials.send={mp?.sendRoundEvent(it)}
+        specials.actors={companion.players().mapNotNull { (id,p) ->
+            val selected=if(id==bedRound.selfId) player else peersState[id]?.selected
+            selected?.let { id to SpecialActor(it,if(id==bedRound.selfId) outfit else peersState[id]?.outfit ?: PlayerOutfit.Original,p,
+                if(id==bedRound.selfId) activeWorldAxis else peerWorldAxes[id] ?: WorldAxis.Latitude) }
+        }.toMap()}
+        specials.enemies={vm.worldEntities(activeWorldAxis,unitPx).filter { it.hp>0 && it.kind in listOf("Z","S") }.map {
+            SpecialTarget(it.kind,it.id,RopePoint(it.latitude/1000f,it.longitude/1000f,it.height/1000f))
+        } + listOfNotNull(alien.targetPoint?.let { SpecialTarget("E",0,it) })}
+        specials.impact={kind,targets -> targets.forEach { target ->
+            if(kind==SpecialKind.Drums) shocks.apply(target.kind,target.id,5000)
+            else when(target.kind) {
+                "Z"->vm.damageZombie(target.id,unitPx,if(kind==SpecialKind.Dog) 3 else 4)
+                "S"->vm.damageSkeleton(target.id,unitPx,if(kind==SpecialKind.Dog) 3 else 4)
+                "E"->alien.specialDamage(if(kind==SpecialKind.Dog) 3 else 4)
+            }
+        } }
+        LaunchedEffect(specials) {
+            while(true) { delay(16);if(!paused && !syncingWorld && !((isInventoryOpen || isCraftingOpen) && mp==null)) specials.tick(16) }
+        }
+        companion.hasRope = { id -> (if(id==bedRound.selfId) equipment.loadout else peerEquipment[id])?.hand==ItemType.Rope }
+        companion.targetPoint = { t -> if(t.kind=="A") alien.targetPoint else vm.worldEntities(activeWorldAxis,unitPx).firstOrNull { it.kind==t.kind && it.id==t.id && it.hp>0 }
+            ?.let { RopePoint(it.latitude/1000f,it.longitude/1000f,it.height/1000f) } }
+        companion.send = { mp?.sendRoundEvent(it) }
+        companion.notice = { pushNotice(it) }
+        companion.prepareGuideBed = { bedRound.ensureGuideBed(it) }
+        companion.moveTarget = { target,p ->
+            if(target.kind=="P") {
+                if(target.id.toInt()==bedRound.selfId) {
+                    playerWorldXDp=unit*p.along(activeWorldAxis);playerOtherAxisDp=unit*p.other(activeWorldAxis)
+                } else {
+                    mp?.sendRoundEvent("ROPE_TUG;${nanoTime()};${target.id};${p.encode()}")
+                    peersState[target.id.toInt()]?.let { peer -> peer.latitudeMilli=(p.lat*1000).toInt();peer.longitudeMilli=(p.lon*1000).toInt() }
+                }
+            } else if(target.kind=="A") alien.tug(p) else vm.tugEntity(target,p,activeWorldAxis,unitPx,::pxToDp)
+        }
+        LaunchedEffect(tileMap) {
+            if(!worldConfig.exploration)return@LaunchedEffect
+            var lastTick=nanoTime()
+            while(true) {
+                delay(if(vineSwing==null && vineStand==null && joystickY<=.2f) 50 else 16)
+                val now=nanoTime();val dt=((now-lastTick)/1_000_000_000f).coerceIn(0f,.05f);lastTick=now
+                if(isPaused) continue
+                val up=if(controlsBlocked) 0f else joystickY
+                val across=if(controlsBlocked) 0f else joystickX
+                vineStand?.let { top ->
+                    if(abs(localRopePoint().lat-top.latitude)>1f || abs(localRopePoint().lon-top.longitude)>1f || isJumping) vineStand=null
+                    else if(up<-.2f) { vineStand=null;vineSwing=VineSwing(top,reach=top.topReach) }
+                }
+                if(vineSwing==null && vineStand==null && up>.2f && !isJumping && currentTimeMillis()>vineRegrabAfter) {
+                    SwingVines.grab(localRopePoint(),tileMap)?.takeIf { !it.vine.swingable || activeWorldAxis==WorldAxis.Latitude }?.let { vineSwing=it }
+                }
+                val swing=vineSwing ?: continue
+                if(playerHp<=0 || (swing.vine.swingable && activeWorldAxis!=WorldAxis.Latitude)) { vineSwing=null;continue }
+                val clear:(RopePoint)->Boolean = { p ->
+                    p.row>=3 && (0..1).all { dx -> (0..1).all { dz -> (0..2).none { dy ->
+                        tileMap.getVoxel(floor(p.lat).toInt()+dx,floor(p.lon).toInt()+dz,floor(p.row).toInt()+dy)
+                    } } }
+                }
+                // Vines deliberately pass through terrain: vertical climbing follows the vine.
+                // Lateral swinging still tests solid world cells.
+                val next=swing.climb(dt,up) { it.row in 3f..(tileMap.height-3f) }.advance(dt,across,clear)
+                if(!next.vine.swingable && abs(across)>.2f) lastDirection=if(across<0) Direction.Right else Direction.Left
+                val point=next.point
+                playerWorldXDp=unit*point.along(activeWorldAxis);playerOtherAxisDp=unit*point.other(activeWorldAxis);heightPx=unitPx*point.row
+                if(next.atTop && up>.2f) {
+                    vineStand=next.vine;vineSwing=null;vineRegrabAfter=currentTimeMillis()+500
+                    playerWorldXDp=unit*(if(activeWorldAxis==WorldAxis.Latitude) next.vine.latitude else next.vine.longitude)
+                    heightPx=unitPx*next.vine.topRow
+                } else if(next.atBottom && up<-.2f) {
+                    vineSwing=null;vineRegrabAfter=currentTimeMillis()+500
+                } else vineSwing=next
+            }
+        }
+        val seenTugs = remember { mutableSetOf<Long>() }
+        LaunchedEffect(companion, isHostSelected) {
+            while(true) {
+                delay(100)
+                if(!isPaused) {
+                    shocks.tick(100)
+                    dog.tick(100)
+                    if (isHostSelected != false) hazardDamage.advance(100, tileMap, companion.players(), cycle.elapsedMs) { id ->
+                        if (id == bedRound.selfId) playerHp = (playerHp - equipment.damage(1)).coerceAtLeast(0)
+                        else mp?.sendRoundEvent("DAMAGE;${nanoTime()};$id;1")
+                    }
+                    if(playerHp > 0 && heightPx >= unitPx * 3) {
+                        if(debugBed!=4) alien.tick(100,bedRound.roundId,cycle.hunting)
+                        companion.tick(100,bedRound.bed,bedRound.roundId)
+                    }
+                }
+            }
+        }
+        LaunchedEffect(companion, audio) {
+            try {
+                while(true) {
+                    audio?.purrProximity = if(isPaused) 0f else CatProximity.gain(localRopePoint(), companion.cat, tileMap)
+                    delay(50)
+                }
+            } finally { audio?.purrProximity = 0f }
         }
         LaunchedEffect(playerWorldXDp, playerOtherAxisDp, heightPx, activeWorldAxis, bedRound.bed) {
             val lat = xDpToPx(if (activeWorldAxis == WorldAxis.Latitude) playerWorldXDp else playerOtherAxisDp) / unitPx
@@ -381,6 +601,20 @@ private fun GameSession(
             pendingActions[action.id] = PendingAction(action, cost)
             mp?.sendRoundEvent(action.encode())
             return true
+        }
+        fun finishCraft(id: String) {
+            if (playerHp <= 0 || syncingWorld || Crafting.nearby(tileMap, localRopePoint()) == null) {
+                pushNotice(tr("Move closer to the workbench")); return
+            }
+            when (Crafting.make(vm.bag, id)) {
+                CraftResult.Crafted -> {
+                    val recipe = Crafting.recipes.first { it.id == id }
+                    pushNotice(tr("Made {0} ×{1}", recipe.name, recipe.count))
+                    audio?.play(SoundEffect.Place)
+                }
+                CraftResult.BagFull -> pushNotice(tr("Inventory full"))
+                else -> pushNotice(tr("Need more materials"))
+            }
         }
         LaunchedEffect(mp) {
             while (true) {
@@ -463,7 +697,8 @@ private fun GameSession(
 
         fun peerOnPlayerPlane(peer: RemotePeer): Boolean {
             val other = if (activeWorldAxis == WorldAxis.Latitude) peer.longitude else peer.latitude
-            return peer.hasPos && other != null && tileMap.wrap(other) == tileMap.activeSlice
+            return peer.hasPos && other != null && tileMap.wrap(other) == tileMap.activeSlice &&
+                (!worldConfig.exploration || peer.latitude?.let { ExplorationWorld.biome(it, peer.longitude ?: 10) == currentBiome } == true)
         }
 
         fun isOnPlayerPlane(otherAxisPx: Float): Boolean =
@@ -484,7 +719,9 @@ private fun GameSession(
         fun respawnPlayerRandom() {
             val rng = Random.Default
             repeat(200) {
-                val col = rng.nextInt(tileMap.width)
+                val col = if (worldConfig.exploration)
+                    ExplorationWorld.origin(currentBiome!!).along(activeWorldAxis) + rng.nextInt(8, if (activeWorldAxis == WorldAxis.Latitude) 182 else 278)
+                else rng.nextInt(tileMap.width)
                 var topRow: Int? = null
                 for (r in (tileMap.height - 1) downTo 0) {
                     if (tileMap.get(col, r)) { topRow = r; break }
@@ -541,6 +778,9 @@ private fun GameSession(
                 if (debugBed > 0) {
                     bedRound.advance(MammyCycle.ROUND_MS, emptyList())
                     bedRound.bed?.let { b ->
+                        // Debug fixture 4 isolates the cat quest from random trees and alien combat.
+                        if(debugBed==4) for(lat in b.latitude-5 until b.latitude) for(lon in b.longitude-1..b.longitude+2)
+                            for(row in b.row until tileMap.height) tileMap.damageVoxel(lat,lon,row,10000)
                         playerWorldXDp = pxToDp((if (debugBed == 2) b.latitude else tileMap.wrap(b.latitude - 3)) * unitPx)
                         playerOtherAxisDp = pxToDp(b.longitude * unitPx)
                         heightPx = (b.row + if (debugBed == 2) 8 else 0) * unitPx
@@ -570,25 +810,141 @@ private fun GameSession(
                     spawnZombiesUntilCap(targetCount = maxZombies)
                     spawnSkeletonsUntilCap(targetCount = maxSkeletons)
                 }
-            }
-        }
+                if(restoredWorld!=null && initialIsHostSelected!=false) {
+                    activeWorldAxis=restoredWorld.axis
+                    val p=restoredWorld.position
+                    playerWorldXDp=unit*p.along(activeWorldAxis);playerOtherAxisDp=unit*p.other(activeWorldAxis)
+                    heightPx=p.row*unitPx;playerHp=restoredWorld.hp.coerceAtLeast(1)
+                    tileMap.setActiveSlice(activeWorldAxis,p.lat.toInt(),p.lon.toInt())
+                    vm.bag.restore(restoredWorld.inventory);equipment.loadout=restoredWorld.equipment
+                    dog.restore(restoredWorld.dog)
+                }
+                if(debugAdventure>0) {
+                    val point=when(debugAdventure) {
+                        6->tileMap.portals.first { ExplorationWorld.biome(it.location.latitude,it.location.longitude)==ExplorationBiome.Meadow }.location.let { RopePoint(it.latitude.toFloat(),it.longitude.toFloat(),it.row.toFloat()) }
+                        13->RopePoint(34f,114f,3f)
+                        14->RopePoint(30f,114f,3f)
+                        in 8..12->RopePoint(30f,114f,3f)
+                        1->RopePoint(24f,62f,4f)
+                        2->SwingVines.all.first().point(0f)
+                        4->BiomeHazards.all.first { it.kind==HazardKind.Vine }.let { RopePoint(it.latitude.toFloat(),it.longitude.toFloat(),9f) }
+                        else->RopePoint(50f,10f,3f)
+                    }
+                    playerWorldXDp=unit*point.lat;playerOtherAxisDp=unit*point.lon;heightPx=unitPx*point.row
+                    if(debugAdventure==5 || debugAdventure==6) vm.bag.add(ItemType.Map,1)
+                    if(debugAdventure==7) {
+                        vm.bag.add(ItemType.Block,8,BlockMaterial.Wood); vm.bag.add(ItemType.Block,3,BlockMaterial.Stone)
+                    }
+                    // Repeatable marketing/test starts. The Android entry point is debug-only.
+                    // Keep real terrain, collisions, item use and damage; stage only starting state.
+                    if(debugAdventure in 8..12) {
+                        tileMap.setActiveSlice(WorldAxis.Latitude,30,114)
+                        if(debugAdventure==8) vm.bag.add(ItemType.Block,8,BlockMaterial.Wood)
+                        if(debugAdventure==9) {
+                            vm.bag.add(ItemType.ElectricArrow,8)
+                            vm.applyWorldEntities(listOf(
+                                NetworkEntity("Z",910,42000,114000,3000,hp=3),
+                                NetworkEntity("S",911,49000,114000,3000,hp=3)
+                            ),activeWorldAxis,unitPx,::pxToDp)
+                        }
+                        if(debugAdventure==10) {
+                            playerHp=2
+                            vm.bag.add(ItemType.Potion,3)
+                            vm.bag.add(ItemType.ElectricArrow,5)
+                        }
+                        if(debugAdventure==11) mammyLocation=WorldLocation(42,114,3)
+                        if(debugAdventure==12) {
+                            bedRound.advance(MammyCycle.ROUND_MS,emptyList())
+                            vm.applyWorldEntities(listOf(
+                                NetworkEntity("Z",920,35000,114000,3000,hp=3),
+                                NetworkEntity("S",921,39000,114000,3000,hp=3),
+                                NetworkEntity("S",922,43000,114000,3000,hp=3,item=ItemType.ElectricArrow)
+                            ),activeWorldAxis,unitPx,::pxToDp)
+                        }
 
-        // Respawn flow: when HP hits 0, clear inventory, restore hearts, and fall in from the top at the start
-        LaunchedEffect(playerHp) {
-            if (playerHp <= 0) {
-                if (mp == null) onDeath() else {
-                    // A death resets this player, never the host's shared world or round.
-                    pendingActions.clear()
-                    ItemType.entries.forEach(vm.bag::removeAll)
-                    vm.bag.add(ItemType.Block, 12, BlockMaterial.Grass)
-                    playerHp = 5
-                    respawnPlayerRandom()
-                    heightPx = tileMap.height * unitPx + playerHeightPx * 2f
-                    pushNotice("Back in the game")
+                    }
+                    if(debugAdventure==14) {
+                        tileMap.setActiveSlice(WorldAxis.Latitude,30,114)
+                        dog.restore(PetDog(RopePoint(42f,114f,3f),-1))
+                    }
+                    if(debugAdventure==13) {
+                        // Example built from the same placeable blocks as player construction.
+                        tileMap.setActiveSlice(WorldAxis.Latitude,46,114)
+                        for(x in 37..52 step 3) for(row in 3..6 step 3) {
+                            val doorway=x==46
+                            val window=row==6 && (x==40 || x==49)
+                            if(!doorway && !window) tileMap.placePiece(x,row,BlockMaterial.Wood,BlockShape.Square)
+                        }
+                        for(x in 37..52 step 3) tileMap.placePiece(x,9,BlockMaterial.Stone,BlockShape.Square)
+                        for(x in 40..49 step 3) tileMap.placePiece(x,12,BlockMaterial.Stone,BlockShape.Square)
+                        mapVersion++
+                    }
+                    if(debugAdventure==3) {
+                        vm.applyWorldEntities(List(8) { index -> NetworkEntity(if(index%2==0) "Z" else "S",900L+index,
+                            (56+index*3)*1000,10000,3000,hp=3) },activeWorldAxis,unitPx,::pxToDp)
+                    }
                 }
             }
         }
 
+        // Respawn flow: when HP hits 0, clear inventory, restore hearts, and fall in from the top at the start
+        // Copy mutable game data on Main; encoding and atomic disk replacement run in the writer.
+        val savedTerrainRevision = remember(tileMap) { longArrayOf(-1) }
+        val savedTerrain = remember(tileMap) { arrayOf(emptyList<Block>()) }
+        fun captureWorld():SavedWorld? {
+            if(!worldConfig.exploration || isHostSelected==false || !didInitialSpawn || debugAdventure>0) return null
+            if(savedTerrainRevision[0]!=tileMap.saveRevision) {
+                savedTerrain[0]=tileMap.captureSaveBlocks();savedTerrainRevision[0]=tileMap.saveRevision
+            }
+            return SavedWorld(worldConfig,localRopePoint(),activeWorldAxis,playerHp,vm.bag.slots.toList(),equipment.loadout,dog.dog,savedTerrain[0])
+        }
+        val captureLatest by rememberUpdatedState({ captureWorld() })
+        LaunchedEffect(tileMap,saves) {
+            if(saves==null)return@LaunchedEffect
+            delay(1000)
+            while(true) { captureLatest()?.let(saves::save);delay(30000) }
+        }
+        LaunchedEffect(paused) { if(paused) captureLatest()?.let { saves?.save(it) } }
+        androidx.compose.runtime.DisposableEffect(tileMap,saves) {
+            saves?.capture={captureLatest()}
+            onDispose { captureLatest()?.let { saves?.save(it) };saves?.capture=null }
+        }
+
+        LaunchedEffect(playerHp) {
+            if (playerHp <= 0) {
+                if (mp == null && !worldConfig.exploration) onDeath() else {
+                    // A death resets this player, never the host's shared world or round.
+                    pendingActions.clear()
+                    craftingPending=false;isCraftingOpen=false
+                    ItemType.entries.forEach(vm.bag::removeAll)
+                    vm.bag.add(ItemType.Block, 12, BlockMaterial.Grass)
+                    vm.bag.addStarterEquipment()
+                    playerHp = 5
+                    respawnPlayerRandom()
+                    heightPx = tileMap.height * unitPx + playerHeightPx * 2f
+                    pushNotice(tr("Back in the game"))
+                }
+            }
+        }
+
+
+        LaunchedEffect(tileMap) {
+            if (worldConfig.exploration) pushNotice(tr("Hit a portal to visit another biome"))
+        }
+
+        fun travelThroughPortal(portal: WorldPortal) {
+            val destination = ExplorationWorld.safeArrival(tileMap, portal)
+            if (destination == null) { pushNotice(tr("The portal exit is blocked")); return }
+            companion.request("RELEASE")
+            vineSwing = null; vineStand = null
+            playerWorldXDp = unit * destination.along(activeWorldAxis)
+            playerOtherAxisDp = unit * destination.across(activeWorldAxis)
+            heightPx = destination.row * unitPx
+            tileMap.setActiveSlice(activeWorldAxis, destination.latitude, destination.longitude)
+            joystickX = 0f; joystickY = 0f
+            previewSelectedAimCol = null; previewSelectedAimRow = null
+            movementClock.reset(); verticalClock.reset()
+        }
 
         // Simple helper to compute overlapping columns/rows for an arbitrary AABB bottom and left in px
         fun aabbOverlappingColumns(leftPx: Float): IntRange {
@@ -646,7 +1002,7 @@ private fun GameSession(
                     if (isHostSelected == false) {
                         if (vm.bag.roomFor(potion.type) > 0) requestWorldAction("TAKE", listOf(potion.id.toString()))
                     } else if (vm.collectPotion(potion.id)) {
-                        pushNotice(if (potion.type == ItemType.Arrow) "Arrow +1" else "Potion +1")
+                        pushNotice(if (potion.type == ItemType.ElectricArrow) tr("Electric arrow +1") else if(potion.type == ItemType.Arrow) tr("Arrow +1") else tr("Potion +1"))
                     }
                 }
             }
@@ -834,6 +1190,12 @@ private fun GameSession(
             for (c in cols) if (tileMap.get(c, rowUnder)) return true
             return false
         }
+
+        fun supportingPeerTop(leftPx: Float, bottomPx: Float): Float? =
+            if (!connectionStatus) null else standingPeerTop(
+                leftPx, bottomPx, playerWidthPx, playerHeightPx, unitPx,
+                peersState.values, ::peerOnPlayerPlane
+            )
 
         // Front-band blockers (single entering column) for grid-quantized horizontal movement
         fun isFrontBandBlockedByTiles(frontCol: Int, bottomRow: Int): Boolean {
@@ -1042,10 +1404,16 @@ private fun GameSession(
                 }
                 left = resolved
                 if (!isJumping && !isSupportedByTiles(left, bottom) &&
-                    !isSupportedByMammy(left, bottom) && bottom >= unitPx &&
+                    !isSupportedByMammy(left, bottom) && supportingPeerTop(left, bottom) == null && bottom >= unitPx &&
                     isSupportedByTiles(left, bottom - unitPx)) bottom -= unitPx
             }
             heightPx = bottom
+            if (worldConfig.exploration) {
+                val start = ExplorationWorld.origin(currentBiome!!).along(activeWorldAxis)
+                val length = if (activeWorldAxis == WorldAxis.Latitude) ExplorationWorld.REGION else ExplorationWorld.REGION_DEPTH
+                left = left.coerceIn((start + ExplorationWorld.BORDER) * unitPx,
+                    (start + length - ExplorationWorld.BORDER - 2) * unitPx)
+            }
             val span = tileMap.width * unitPx
             return pxToDp(((left % span) + span) % span)
         }
@@ -1062,6 +1430,9 @@ private fun GameSession(
                     !(cellRight <= left || cellLeft >= left + playerWidthPx)
                 }
             }
+            if(alien.targetPoint?.let { floor(it.other(activeWorldAxis)).toInt().mod(tileMap.width)==tileMap.activeSlice }==true &&
+                alien.contains(if(activeWorldAxis==WorldAxis.Latitude) wrapCol(cell.c) else tileMap.activeSlice,
+                    if(activeWorldAxis==WorldAxis.Longitude) wrapCol(cell.c) else tileMap.activeSlice,cell.r)) return true
             return zombies.any { isOnPlayerPlane(it.otherAxisPx) && overlaps(it.worldXPx, it.bottomPx) } ||
                 skeletons.any { isOnPlayerPlane(it.otherAxisPx) && overlaps(it.worldXPx, it.bottomPx) }
         }
@@ -1095,6 +1466,9 @@ private fun GameSession(
                 if (!remoteInput) bedRound.hit(targetLat, targetLon, targetRow)
                 return true
             }
+            if(alien.contains(targetLat,targetLon,targetRow)) {
+                return alien.hit(bedRound.selfId,targetLat,targetLon,targetRow,equipment.loadout.punchDamage + if((specials.power[bedRound.selfId] ?: 0)>0) 2 else 0)
+            }
             // Damage tile if present
             if (tileMap.hasPieceAt(wrappedX, targetRow)) {
                 val damage = tileMap.damagePieceAt(wrappedX, targetRow, 10) ?: return false
@@ -1103,7 +1477,7 @@ private fun GameSession(
                 // If the block at this anchor was destroyed, grant a Block item to the player
                 if (remaining <= 0) {
                     if (vm.addItemToInventory(ItemType.Block, 1, damage.material)) {
-                        pushNotice("${damage.material.name} block +1")
+                        pushNotice(tr("${damage.material.name} block") + " +1")
                     }
                 }
                 anythingHit = true
@@ -1127,7 +1501,7 @@ private fun GameSession(
                     candidates.any { zl -> !(cellRight <= zl || cellLeft >= zl + playerWidthPx) }
                 }
                 if (zombie != null) {
-                    vm.damageZombie(zombie.id, unitPx, 1)
+                    vm.damageZombie(zombie.id, unitPx, equipment.loadout.punchDamage + if((specials.power[bedRound.selfId] ?: 0)>0) 2 else 0)
                     anythingHit = true
                     return@run
                 }
@@ -1141,7 +1515,7 @@ private fun GameSession(
                     candidates.any { sl -> !(cellRight <= sl || cellLeft >= sl + playerWidthPx) }
                 }
                 if (skeleton != null) {
-                    vm.damageSkeleton(skeleton.id, unitPx, 1)
+                    vm.damageSkeleton(skeleton.id, unitPx, equipment.loadout.punchDamage + if((specials.power[bedRound.selfId] ?: 0)>0) 2 else 0)
                     anythingHit = true
                 }
             }
@@ -1322,7 +1696,8 @@ private fun GameSession(
 
         // Keep melee targets within the joystick's direction, including repeated swings.
         fun hit() {
-            if (isAxisTransitioning || isPaused) return
+            if (isAxisTransitioning || controlsBlocked) return
+            combatMotion.start(mp?.getSelfId() ?: 0)
             audio?.play(SoundEffect.Hit)
             val xPx = xDpToPx(playerWorldXDp)
             val joyMag = sqrt(joystickX * joystickX + joystickY * joystickY)
@@ -1333,6 +1708,12 @@ private fun GameSession(
                 floor(heightPx / unitPx).toInt(),
                 floor((heightPx + playerHeightPx - 0.001f) / unitPx).toInt(), facing
             )
+            if (worldConfig.exploration && !isJumping) {
+                val position = localRopePoint()
+                val portal = ExplorationWorld.hitPortal(position.lat, position.lon, position.row,
+                    activeWorldAxis, candidates, tileMap.portals)
+                if (portal != null) { travelThroughPortal(portal); return }
+            }
             val aimed = MeleeTargeting.select(candidates) {
                 tileMap.inY(it.r) && (tileMap.hasPieceAt(wrapCol(it.c), it.r) || cellContainsEnemy(it))
             }
@@ -1356,7 +1737,7 @@ private fun GameSession(
 
         // Place logic: place a 3x3 block into the adjacent cell (anchor) in last look direction
         fun place() {
-            if (isAxisTransitioning || isPaused) return
+            if (isAxisTransitioning || controlsBlocked) return
             val slot = inventory.getOrNull(vm.selectedSlot.intValue)
             if (slot == null || slot.type == null || slot.count <= 0) {
                 // Nothing selected
@@ -1372,10 +1753,11 @@ private fun GameSession(
                     if (playerHp < 5) {
                         playerHp += 1
                         vm.consumeSelectedItem()
+                        consumeSequence++
                         audio?.play(SoundEffect.Drink)
-                        pushNotice("+1 heart")
+                        pushNotice(tr("+1 heart"))
                     } else {
-                        pushNotice("Hearts are full")
+                        pushNotice(tr("Hearts are full"))
                     }
                 }
                 else -> { /* no-op */ }
@@ -1384,7 +1766,10 @@ private fun GameSession(
 
         // Jump and vertical physics with tile collisions
         fun jump() {
-            if (isAxisTransitioning || isPaused) return
+            if (isAxisTransitioning || controlsBlocked) return
+            if (vineSwing != null || vineStand != null) {
+                vineSwing=null;vineStand=null;vineRegrabAfter=currentTimeMillis()+500
+            }
             if (isJumping) return
             audio?.play(SoundEffect.Jump)
             isJumping = true
@@ -1401,7 +1786,7 @@ private fun GameSession(
                     }
                 }
                 val g = -3000f // px/s^2
-                val targetJumpHeightPx = unitPx * 4f
+                val targetJumpHeightPx = unitPx * equipment.loadout.jumpHeight
                 var v = sqrt(2f * -g * targetJumpHeightPx) // px/s upward
                 val frameMs = 16L
                 val dt = PlayerPhysicsClock.STEP_SECONDS
@@ -1623,13 +2008,20 @@ private fun GameSession(
             sendWorld("BASE", WorldReplication.encodeBlocks(tileMap.networkBlocks().map { it.id to it }))
             publishEntities()
             bedRound.publish()
+            companion.publish()
+            alien.publish()
+            dog.publish()
+            specials.publish()
+            shocks.publish()
             sendWorld("READY", "")
         }
 
-        fun applyRemoteAction(actor: Int, action: WorldAction): String = SharedWorldAuthority(
+        fun applyRemoteAction(actor: Int, action: WorldAction): String = if(specials.event?.intro == true || shocks.active("P",actor.toLong())) "false;_;_" else SharedWorldAuthority(
             tileMap, vm, unitPx, playerWidthPx, playerHeightPx, activeWorldAxis, bedRound.position,
             positions = { (peersState.keys + bedRound.selfId).mapNotNull(bedRound.position) },
             bed = { bedRound.bed }, hitBed = { lat, lon, row, id -> bedRound.hit(lat, lon, row, id) },
+            hitAlien = { actor,lat,lon,row,damage -> alien.hit(actor,lat,lon,row,damage) },
+            punchDamage = { actor -> (peerEquipment[actor] ?: EquipmentLoadout()).punchDamage + if((specials.power[actor] ?: 0)>0) 2 else 0 },
             onWorldChanged = { mapVersion++ }
         ).apply(actor, action)
 
@@ -1641,17 +2033,29 @@ private fun GameSession(
             val lon = parts[1].toInt()
             val bottom = parts[2].toInt()
             val peer = peersState.getOrPut(id) { RemotePeer() }
+            val changedRegion = worldConfig.exploration && peer.latitude?.let { ExplorationWorld.biome(it, peer.longitude ?: 10) != ExplorationWorld.biome(lat / 1000, lon / 1000) } == true
             peer.latitudeMilli = lat; peer.longitudeMilli = lon
             peer.latitude = tileMap.wrap(lat / 1000); peer.longitude = tileMap.wrap(lon / 1000)
             peer.targetXPx = (if (activeWorldAxis == WorldAxis.Latitude) lat else lon) / 1000f * unitPx
             peer.targetHeightPx = bottom / 1000f * unitPx
-            if (!peer.hasPos || peer.projectedAxis != activeWorldAxis) {
+            if (!peer.hasPos || peer.projectedAxis != activeWorldAxis || changedRegion) {
                 peer.worldXPx = peer.targetXPx; peer.heightPx = peer.targetHeightPx
                 peer.worldXDp = pxToDp(peer.worldXPx); peer.hasPos = true
             }
             peer.projectedAxis = activeWorldAxis
+            peerBlocking[id] = parts.getOrNull(8)?.toBooleanStrictOrNull()==true
+            combatMotion.receive(id,parts.getOrNull(9)?.toIntOrNull() ?: 0)
+            peerWorldAxes[id] = WorldAxis.entries.getOrElse(parts[4].toInt()) { WorldAxis.Latitude }
             peer.facingRight = parts[3].toBooleanStrict()
             peer.hp = parts[5].toInt().coerceIn(0, 5)
+            peer.outfit = outfitFromPlayerState(parts)
+            peerEquipment[id] = EquipmentLoadout.decode(parts.getOrNull(7))
+            val vine=parts.getOrNull(10)?.toIntOrNull()?.let { SwingVines.all.getOrNull(it) }
+            val angle=parts.getOrNull(11)?.toFloatOrNull()
+            val reach=parts.getOrNull(12)?.toFloatOrNull() ?: vine?.length ?: 21f
+            val swing=if(vine!=null && angle!=null && angle.isFinite() && angle in -1.05f..1.05f && reach.isFinite() && reach in vine.topReach..vine.length) VineSwing(vine,angle,reach=reach) else null
+            if(swing!=null && kotlin.math.abs(swing.point.lat-lat/1000f)<3 && kotlin.math.abs(swing.point.row-bottom/1000f)<3 && kotlin.math.abs(swing.vine.longitude-lon/1000f)<2)
+                peerSwings[id]=swing else peerSwings.remove(id)
         }
 
         // Transport callbacks can arrive on socket threads; all game mutations stay on Main.
@@ -1661,6 +2065,21 @@ private fun GameSession(
                     scope.launch {
                         runCatching {
                             when {
+                                specials.receive(senderId,payload) -> Unit
+                                dog.receive(senderId,payload) -> Unit
+                                shocks.receive(senderId,payload) -> Unit
+                                alien.receive(senderId,payload) -> Unit
+                                companion.receive(senderId,payload) -> Unit
+                                payload.startsWith("ROPE_TUG;") && senderId==0 && isHostSelected==false -> {
+                                    val p=payload.split(';')
+                                    if(p[2].toInt()==mp.getSelfId() && seenTugs.add(p[1].toLong())) {
+                                        val target=RopePoint.decode(p[3])
+                                        if(companion.distance(localRopePoint(),target)<=4f) {
+                                            playerWorldXDp=unit*target.along(activeWorldAxis)
+                                            playerOtherAxisDp=unit*target.other(activeWorldAxis)
+                                        }
+                                    }
+                                }
                                 payload.startsWith("SOUND;") && senderId == 0 && isHostSelected == false -> {
                                     SoundEffect.entries.firstOrNull { it.name == payload.substringAfter(';') }
                                         ?.let { audio?.play(it) }
@@ -1680,7 +2099,7 @@ private fun GameSession(
                                 payload.startsWith("DAMAGE;") && senderId == 0 && isHostSelected == false -> {
                                     val parts = payload.split(';')
                                     if (parts[2].toInt() == mp.getSelfId() && receivedDamage.add(parts[1].toLong())) {
-                                        playerHp = (playerHp - parts[3].toInt().coerceIn(0, 5)).coerceAtLeast(0)
+                                        playerHp = (playerHp - equipment.damage(parts[3].toInt().coerceIn(0, 5))).coerceAtLeast(0)
                                         playerFlashUntil = currentTimeMillis() + 150L
                                     }
                                 }
@@ -1695,6 +2114,11 @@ private fun GameSession(
                                     val p = payload.split(';')
                                     if (p[2].toInt() == mp.getSelfId()) {
                                         val pending = pendingActions.remove(p[1].toLong()) ?: return@launch
+                                        if (pending.action.verb == "CRAFT") {
+                                            craftingPending = false
+                                            if (p[3].toBooleanStrict()) finishCraft(pending.action.arguments.single())
+                                            else pushNotice(tr("Move closer to the workbench"))
+                                        }
                                         if (p[3].toBooleanStrict()) {
                                             when (pending.action.verb) {
                                                 "PLACE" -> audio?.play(SoundEffect.Place)
@@ -1705,14 +2129,14 @@ private fun GameSession(
                                         else if (p[4] != "_") {
                                             val type = ItemType.valueOf(p[4])
                                             val material = if (p[5] == "_") null else BlockMaterial.valueOf(p[5])
-                                            if (!vm.bag.add(type, 1, material)) pushNotice("Inventory full")
+                                            if (!vm.bag.add(type, 1, material)) pushNotice(tr("Inventory full"))
                                         }
                                     }
                                 }
                                 payload.startsWith("WORLD_READY;") && isHostSelected == true -> {
-                                    mp.sendRoundEvent("WORLD_CONFIG;${tileMap.width};${tileMap.height}")
+                                    mp.sendRoundEvent("WORLD_CONFIG;${tileMap.width};${tileMap.height};${worldConfig.exploration};${worldConfig.unlimited};${worldConfig.portalSeed}")
                                     val dimensions = payload.split(';')
-                                    if (dimensions.getOrNull(1)?.toIntOrNull() == tileMap.width && dimensions.getOrNull(2)?.toIntOrNull() == tileMap.height) {
+                                    if (dimensions.getOrNull(1)?.toIntOrNull() == tileMap.width && dimensions.getOrNull(2)?.toIntOrNull() == tileMap.height && dimensions.getOrNull(3)?.toBooleanStrictOrNull() == worldConfig.exploration && dimensions.getOrNull(4)?.toBooleanStrictOrNull() == worldConfig.unlimited && dimensions.getOrNull(5)?.toIntOrNull() == worldConfig.portalSeed) {
                                         publishBaseline()
                                         bedRound.replayRewards(senderId)
                                     }
@@ -1722,7 +2146,12 @@ private fun GameSession(
                                     val width = parts[1].toInt()
                                     val height = parts[2].toInt()
                                     require(width in listOf(192, 384, 576) && height == worldConfig.height)
-                                    if (width != tileMap.width) onWorldConfig(worldConfig.copy(horizontalSize = width))
+                                    val exploration = parts.getOrNull(3)?.toBooleanStrictOrNull() ?: false
+                                    require(!exploration || width == ExplorationWorld.SIZE)
+                                    val unlimited = parts.getOrNull(4)?.toBooleanStrictOrNull() ?: false
+                                    val portalSeed = parts.getOrNull(5)?.toIntOrNull() ?: 0
+                                    if (width != tileMap.width || exploration != worldConfig.exploration || unlimited != worldConfig.unlimited || portalSeed != worldConfig.portalSeed)
+                                        onWorldConfig(worldConfig.copy(horizontalSize = width, exploration = exploration, unlimited = unlimited, portalSeed = portalSeed))
                                 }
                                 payload.startsWith("WORLD;") && senderId == 0 && isHostSelected == false -> {
                                     val transaction = worldStream.receive(payload) ?: return@launch
@@ -1741,8 +2170,8 @@ private fun GameSession(
                         }.onFailure {
                             if (isHostSelected == false && payload.startsWith("WORLD")) {
                                 syncingWorld = true
-                                pushNotice("Resynchronizing the shared world…")
-                                mp.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height}")
+                                pushNotice(tr("Resynchronizing the shared world…"))
+                                mp.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height};${worldConfig.exploration};${worldConfig.unlimited};${worldConfig.portalSeed}")
                             }
                         }
                     }
@@ -1768,21 +2197,21 @@ private fun GameSession(
                 override fun onPeerConnected(id: Int) { scope.launch {
                     if (id != mp.getSelfId()) {
                         peersState.getOrPut(id) { RemotePeer() }
-                        pushNotice("Player #$id joined")
+                        pushNotice(tr("Player #{0} joined", id))
                     }
                 } }
                 override fun onPeerDisconnected(id: Int) { scope.launch {
                     peersState.remove(id)
                     if (isHostSelected == true) mp.sendRoundEvent("PLAYER_LEFT;$id")
-                    pushNotice("Player #$id left")
+                    pushNotice(tr("Player #{0} left", id))
                 } }
                 override fun onConnectionChanged(connected: Boolean) { scope.launch {
                     connectionStatus = connected
-                    pushNotice(if (connected) "Connected" else "Connection lost")
+                    pushNotice(if (connected) tr("Connected") else tr("Connection lost"))
                     if (isHostSelected == false) syncingWorld = true
                     if (connected) {
                         mp.sendSelectedPlayer(player.name)
-                        if (isHostSelected == false) mp.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height}")
+                        if (isHostSelected == false) mp.sendRoundEvent("WORLD_READY;${tileMap.width};${tileMap.height};${worldConfig.exploration};${worldConfig.unlimited};${worldConfig.portalSeed}")
                     }
                 } }
                 override fun onPeerSelectedPlayer(id: Int, name: String) { scope.launch {
@@ -1828,7 +2257,7 @@ private fun GameSession(
                 if (!syncingWorld) {
                     val lat = xDpToPx(if (activeWorldAxis == WorldAxis.Latitude) playerWorldXDp else playerOtherAxisDp)
                     val lon = xDpToPx(if (activeWorldAxis == WorldAxis.Longitude) playerWorldXDp else playerOtherAxisDp)
-                    val body = "${(lat / unitPx * 1000).toInt()};${(lon / unitPx * 1000).toInt()};${(heightPx / unitPx * 1000).toInt()};${lastDirection.isFacingRight()};${activeWorldAxis.ordinal};$playerHp"
+                    val body = "${(lat / unitPx * 1000).toInt()};${(lon / unitPx * 1000).toInt()};${(heightPx / unitPx * 1000).toInt()};${lastDirection.isFacingRight()};${activeWorldAxis.ordinal};$playerHp;${outfit.wireId};${equipment.loadout.encode()};${equipment.blocking};${combatMotion.remaining[mp?.getSelfId() ?: 0] ?: 0};${vineSwing?.let { SwingVines.all.indexOf(it.vine) } ?: -1};${vineSwing?.angle ?: 0f};${vineSwing?.reach ?: 21f}"
                     mp?.sendRoundEvent(if (isHostSelected == true) "PLAYER_STATE;0;$body" else "PLAYER;$body")
                 }
                 delay(50L)
@@ -1857,24 +2286,24 @@ private fun GameSession(
                         .padding(top = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(text = "Multiplayer: choose role", color = Color.White)
+                    Text(text = tr("Multiplayer: choose role"), color = Color.White)
                     Spacer(Modifier.height(8.dp))
                     Row {
-                        Button(onClick = { isHostSelected = true }) { Text("Host") }
+                        Button(onClick = { isHostSelected = true }) { Text(tr("Host")) }
                         Spacer(Modifier.width(12.dp))
-                        Button(onClick = { isHostSelected = false }) { Text("Join") }
+                        Button(onClick = { isHostSelected = false }) { Text(tr("Join")) }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Text(text = "Host binds 0.0.0.0:${MultiplayerManager.DEFAULT_PORT}", color = Color.White)
-                    Text(text = "Join connects to ${MultiplayerManager.DEFAULT_HOST_IP}:${MultiplayerManager.DEFAULT_PORT}", color = Color.White)
+                    Text(text = tr("Host address: {0}", "0.0.0.0:${MultiplayerManager.DEFAULT_PORT}"), color = Color.White)
+                    Text(text = tr("Host address: {0}", "${MultiplayerManager.DEFAULT_HOST_IP}:${MultiplayerManager.DEFAULT_PORT}"), color = Color.White)
                 }
             } else {
                 val status = if (mp == null) {
-                    "Solo"
+                    tr("Solo")
                 } else {
-                    val connectionLabel = if (connectionStatus) "connected" else "connecting..."
-                    (if (isHostSelected == true) "Host: $connectionLabel" else "Client: $connectionLabel") +
-                        " | peers: ${peersState.size}"
+                    val connectionLabel = if (connectionStatus) tr("connected") else tr("connecting...")
+                    (if (isHostSelected == true) tr("Host: {0}", connectionLabel) else tr("Client: {0}", connectionLabel)) +
+                        " | " + tr("Friends: {0}", peersState.size)
                 }
                 Text(
                     text = status,
@@ -1892,16 +2321,16 @@ private fun GameSession(
                     ) {
                         Text(
                             text = if (isHostSelected == true) {
-                                "Waiting for players"
+                                tr("Waiting for players")
                             } else {
-                                "Connection lost"
+                                tr("Connection lost")
                             },
                             color = Color.White
                         )
                         Spacer(Modifier.height(4.dp))
                         Button(
                             onClick = {
-                                pushNotice(if (isHostSelected == true) "Restarting host..." else "Retrying connection...")
+                                pushNotice(if (isHostSelected == true) tr("Restarting host...") else tr("Retrying connection..."))
                                 mp.stop()
                                 mp.start()
                             },
@@ -1911,17 +2340,18 @@ private fun GameSession(
                             ),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                         ) {
-                            Text(if (isHostSelected == true) "Restart Host" else "Retry")
+                            Text(if (isHostSelected == true) tr("Restart Host") else tr("Retry"))
                         }
                     }
                 }
             }
 
             Text(
-                text = (if (cycle.safe) "Safe time " else if (cycle.hunting) "Nightfall — enemies hunting! " else "Find Mammy ") +
+                text = if(worldConfig.unlimited) tr("Unlimited exploration") else (if (cycle.safe) tr("Safe time") + " " else if (cycle.hunting) tr("Nightfall — enemies hunting!") + " " else tr("Find Mammy") + " ") +
                     "${cycle.remainingSeconds / 60}:${(cycle.remainingSeconds % 60).toString().padStart(2, '0')}",
                 color = Color.White,
                 modifier = Modifier.align(Alignment.TopCenter).zIndex(3f)
+                    .clickable { hintRequest++ }
                     .background(Color.Black.copy(alpha = 0.6f)).padding(8.dp)
             )
             val playerCenterForObjectivePx = xDpToPx(playerWorldXDp) + playerWidthPx / 2f
@@ -1934,13 +2364,25 @@ private fun GameSession(
                 else -> "nearby"
             }
             val mammyDistanceTiles = abs(mammyDxTiles).toInt()
-            Text(
-                text = if (hasFoundMammy) {
-                    "Mammy found — rest before the next search"
+            if (accessibility.showInfoText || showTemporaryHint) Text(
+                text = if(vineStand!=null) {
+                    tr("Move left/right to step off. Down to climb. Jump to let go.")
+                } else if(vineSwing!=null) {
+                    tr(if(vineSwing!!.vine.swingable) "Left/right to swing, up/down to climb. Jump to let go." else "Up/down to climb, left/right to switch sides. Jump to let go.")
+                } else if (hazardContacts.isNotEmpty()) {
+                    tr(hazardContacts.first().kind.title)
+                } else if(SwingVines.grab(localRopePoint(),tileMap)!=null) {
+                    tr("Press up to climb the vine")
+                } else if(worldConfig.unlimited) {
+                    tr("Explore freely. Mammy has an optional gift.")
+                } else if (hasFoundMammy) {
+                    tr("Mammy found — rest before the next search")
+                } else if (currentBiome != null && ExplorationWorld.biome(mammyLocation.latitude, mammyLocation.longitude) != currentBiome) {
+                    tr("Hit a portal to visit another biome")
                 } else if (!mammyVisible) {
-                    "Turn the world to look for Mammy"
+                    tr("Turn the world to look for Mammy")
                 } else {
-                    "Find Mammy: $mammyDistanceTiles tiles $mammyDirection"
+                    tr("Find Mammy: {0} tiles {1}", mammyDistanceTiles, tr(mammyDirection))
                 },
                 color = Color.White,
                 modifier = Modifier
@@ -1951,8 +2393,22 @@ private fun GameSession(
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             )
 
+            val specialCooldown = specials.cooldowns[bedRound.selfId] ?: 0
+            Button(onClick={
+                if(vineSwing==null && !isJumping) specials.use(SpecialView(-centerX.value/unit.value,(screenWidth-centerX).value/unit.value,
+                    cameraBottomPx/unitPx,(cameraBottomPx/unitPx+playableHeight.value/unit.value).coerceAtMost(tileMap.height.toFloat())))
+            },enabled=!controlsBlocked && !isJumping && vineSwing==null && specials.event==null && specialCooldown==0,
+                contentPadding=PaddingValues(6.dp),
+                modifier=Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top=if(viewportHeight<460.dp) 142.dp else 210.dp,end=14.dp).size(64.dp).zIndex(5f)
+                    .semantics {
+                        contentDescription=tr(player.special().title)
+                        stateDescription=if(specialCooldown>0) tr("Special ready in {0}s",(specialCooldown+999)/1000) else tr(player.special().title)
+                    }) {
+                SpecialAbilityIcon(player.special(),specialCooldown/30000f,Modifier.fillMaxSize())
+            }
+            SpecialIntro(specials.event,reduceMotion,Modifier.fillMaxSize().zIndex(30f))
             if (syncingWorld) {
-                Text(if (connectionStatus) "Waiting for the host’s world…" else "Reconnecting…",
+                Text(if (connectionStatus) tr("Waiting for the host’s world…") else tr("Connection lost. Trying to reconnect…\nIf the host has left, open the game menu and choose Leave game."),
                     color = Color.White, modifier = Modifier.zIndex(8f).align(Alignment.Center)
                         .background(Color.Black.copy(alpha = 0.8f)).padding(16.dp))
             }
@@ -1967,18 +2423,21 @@ private fun GameSession(
                     .background(skyColor)
                     .pointerInput(foundationHeight, unitPx, centerX) {
                         detectTapGestures(onTap = { pos ->
-                            if (isAxisTransitioning || isPaused) return@detectTapGestures
+                            if (isAxisTransitioning || controlsBlocked) return@detectTapGestures
                             // Convert screen tap to world grid (consider camera offset)
                             val cameraOffsetXDpNow = playerWorldXDp - centerX
                             val cameraOffsetXPxNow = xDpToPx(cameraOffsetXDpNow)
-                            val worldX = pos.x + cameraOffsetXPxNow
-                            val targetY = WorldViewport.screenToWorldY(size.height.toFloat(), pos.y,
-                                xDpToPx(foundationHeight))
+                            if (pos.y >= size.height - xDpToPx(foundationHeight)) return@detectTapGestures
+                            val worldX = pos.x / cameraZoom + cameraOffsetXPxNow
+                            val targetY = WorldCamera.worldY(pos.y, size.height - xDpToPx(foundationHeight), cameraBottomPx, cameraZoom)
                             if (targetY < 0f) return@detectTapGestures
                             val selected = inventory.getOrNull(vm.selectedSlot.intValue)
-                            if (selected?.type == ItemType.Arrow && selected.count > 0) {
+                            if (selected?.type in listOf(ItemType.Arrow,ItemType.ElectricArrow) && selected!!.count > 0) {
                                 if (isHostSelected == false) {
-                                    requestWorldAction("FIRE", listOf((worldX / unitPx * 1000).toInt().toString(), (targetY / unitPx * 1000).toInt().toString()), spendSelected = true)
+                                    if (requestWorldAction("FIRE", listOf((worldX / unitPx * 1000).toInt().toString(), (targetY / unitPx * 1000).toInt().toString(), selected.type!!.name), spendSelected = true)) {
+                                        bowFacingRight = worldX >= xDpToPx(playerWorldXDp) + playerWidthPx / 2f
+                                        bowSequence++
+                                    }
                                 } else if (vm.fireSelectedArrow(
                                         targetX = worldX,
                                         targetY = targetY,
@@ -1988,7 +2447,9 @@ private fun GameSession(
                                         worldWidthPx = tileMap.width * unitPx
                                     )
                                 ) {
-                                    pushNotice("Arrow fired")
+                                    bowFacingRight = worldX >= xDpToPx(playerWorldXDp) + playerWidthPx / 2f
+                                    bowSequence++
+                                    pushNotice(tr("Arrow fired"))
                                 }
                                 return@detectTapGestures
                             }
@@ -2008,10 +2469,18 @@ private fun GameSession(
                     }
             ) {
                 FoundationLayer(foundationRows, unit * WorldViewport.BLOCK_CELLS,
-                    playerWorldXDp - centerX, Modifier.matchParentSize())
+                    playerWorldXDp - centerX, Modifier.matchParentSize(), cameraZoom)
                 // Keep the playable world above the immutable visual floor. Its world
                 // coordinates and collisions remain identical on phones and tablets.
                 GamePresentation(Modifier.matchParentSize().padding(bottom = foundationHeight).clipToBounds()) {
+                Box(Modifier.align(Alignment.BottomStart)
+                    .wrapContentSize(Alignment.BottomStart, unbounded = true)
+                    .requiredSize(screenWidth, unit * (tileMap.height + 12))
+                    .graphicsLayer {
+                        transformOrigin = TransformOrigin(0f, 1f)
+                        scaleX = cameraZoom; scaleY = cameraZoom
+                        translationY = cameraBottomPx * cameraZoom
+                    }) {
                 // Camera offset in dp (world x at player minus screen center)
                 val cameraOffsetXDp = playerWorldXDp - centerX
                 val cameraOffsetXPx = xDpToPx(cameraOffsetXDp)
@@ -2021,7 +2490,7 @@ private fun GameSession(
                 // Canvas uses world-sized geometry without Compose's child-size constraints.
                 // Clip copies to the viewport before drawing; destroyed voxels remain empty.
                 val blocksSnapshot = remember(mapVersion, tileMap.projectileRevision, activeWorldAxis, tileMap.activeSlice) {
-                    tileMap.snapshotRenderableBlocks()
+                    tileMap.snapshotRenderableBlocks().filterNot { it.managed }
                 }
                 val nearbyTerrain = remember(tileMap, mapVersion, tileMap.projectileRevision, activeWorldAxis,
                     tileMap.activeSlice, worldConfig.nearbyTerrainRows) {
@@ -2031,7 +2500,7 @@ private fun GameSession(
                             for (direction in listOf(-1, 1)) {
                                 val fixed = tileMap.activeSlice + distance * direction
                                 view.setActiveSlice(activeWorldAxis, fixed, fixed)
-                                add((if (distance == 1) 0.12f else 0.05f) to view.snapshotRenderableBlocks())
+                                add((if (distance == 1) 0.12f else 0.05f) to view.snapshotRenderableBlocks().filterNot { it.managed })
                             }
                         }
                     }
@@ -2039,7 +2508,20 @@ private fun GameSession(
                 Canvas(Modifier.matchParentSize()) {
                     val hinge = xDpToPx(centerX) + playerWidthPx / 2f
                     if (isAxisTransitioning) drawPaperSky(paperFrame, turnFromAxis, turnDirection, hinge, cycle.darkness)
-                    drawDistantMountains(cameraOffsetXPx, unitPx, activeWorldAxis, cycle.darkness)
+                    if (!worldConfig.exploration) drawDistantMountains(cameraOffsetXPx, unitPx, activeWorldAxis, cycle.darkness)
+                    else {
+                        val row = floor(heightPx / unitPx).toInt()
+                        val col = floor(xDpToPx(playerWorldXDp) / unitPx).toInt()
+                        val underground = (row + 3 until tileMap.height).any { tileMap.get(col, it) }
+                        if (underground) drawRect(Color(0xFF14212C))
+                        if (activeWorldAxis == WorldAxis.Latitude) {
+                            for (boundary in 0..3) {
+                                val left = (boundary * ExplorationWorld.REGION - ExplorationWorld.BORDER) * unitPx - cameraOffsetXPx
+                                drawRect(Color(0xFF263D47), Offset(left, 0f), Size(ExplorationWorld.BORDER * 2 * unitPx, size.height))
+                            }
+                        }
+                    }
+                    if (!isAxisTransitioning) drawWorldScenery(tileMap, localRopePoint(), activeWorldAxis, unitPx, xDpToPx(centerX))
                     val worldWidthPx = tileMap.width * unitPx
                     // Ghost terrain stays behind the active slice and never enters its collision map.
                     if (!isAxisTransitioning) nearbyTerrain.forEach { (opacity, blocks) ->
@@ -2096,6 +2578,9 @@ private fun GameSession(
                         }
                     }
                 }
+
+                HuntBedLayer(bedRound.bed, activeWorldAxis, tileMap.activeSlice,
+                    tileMap.width, unit, centerX, playerWorldXDp, screenWidth)
 
                 // Long-press Place preview ghost: show all touching 1x1 options; select via joystick and show ghost if valid
                 if (isPlacePreviewing && vm.hasSelectedBlock()) {
@@ -2247,51 +2732,41 @@ private fun GameSession(
                     }
                 }
 
-                // Notices banner (top center)
-                LaunchedEffect(Unit) {
-                    while (true) {
-                        val now = currentTimeMillis()
-                        notices.removeAll { now - it.createdAt > 3500 }
-                        delay(500)
-                    }
-                }
-                Column(modifier = Modifier.align(Alignment.TopCenter).padding(top = 120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    notices.forEach { n ->
-                        Box(modifier = Modifier
-                            .padding(2.dp)
-                            .background(Color.Black.copy(alpha = 0.4f))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)) {
-                            Text(n.text, color = Color.White)
-                        }
-                    }
-                }
+                if (worldConfig.exploration) SwingVineLayer(tileMap,localRopePoint(),activeWorldAxis,unit,centerX,listOfNotNull(vineSwing)+peerSwings.filterKeys { it in peersState }.values)
+                if (worldConfig.exploration) BiomeHazardLayer(tileMap,localRopePoint(),activeWorldAxis,unit,centerX,cycle.elapsedMs,reduceMotion,vinesOnly=true)
 
+                // Arriving players remain visible in front of their paired portal.
+                if (worldConfig.exploration) PortalLayer(tileMap, activeWorldAxis, playerWorldXDp,
+                    unit, centerX, currentBiome!!)
+
+                // Both local and remote characters render in front of climbing and swinging vines.
                 // Player sprite (always centered)
                 val heightDp = pxToDp(heightPx)
                 Box(modifier = Modifier.align(Alignment.BottomStart)
                     .offset(x = centerX, y = -heightDp)
                     .size(width = playerWidth, height = playerHeight)) {
-                Image(
-                    painter = painterResource(playerSpriteResource(player, showWalkingPose)),
-                    contentDescription = "Player",
+                val grippingVine = !isParalyzed && vineSwing != null && specials.event?.let { !it.intro && it.actor==bedRound.selfId } != true
+                if (grippingVine) VineCharacterArt(player,outfit,playerWidth,playerHeight,lastDirection.isFacingRight(),vineSwing?.angle ?: 0f,tr("Player"))
+                else if (consuming && !isParalyzed) ConsumingCharacter(player, outfit, lastDirection.isFacingRight(), reduceMotion)
+                else if (drawingBow && !isParalyzed) ActionCharacter(player, outfit, bowFacingRight, consuming = false, reduceMotion = reduceMotion)
+                else Image(
+                    painter = if(isParalyzed) shockedPlayerPainter(player,outfit) else if(combatMotion.active(mp?.getSelfId() ?: 0)) attackPlayerPainter(player,outfit) else characterPainter(player, outfit, if (showWalkingPose) CharacterPose.Walk else CharacterPose.Side),
+                    contentDescription = tr("Player"),
                     alignment = Alignment.BottomCenter,
                     contentScale = androidx.compose.ui.layout.ContentScale.FillHeight,
                     modifier = Modifier
                         .fillMaxSize()
+                        .requiredWidth(if(isParalyzed || combatMotion.active(mp?.getSelfId() ?: 0)) playerHeight*1.1f else playerWidth)
                         .graphicsLayer {
-                            alpha = 1f - paperFrame.frontPose
+                            alpha = if(specials.event?.let { !it.intro && it.actor==bedRound.selfId } == true) 0f else if(isParalyzed) 1f else 1f - paperFrame.frontPose
                             scaleX = playerSpriteScaleX(player, lastDirection.isFacingRight())
                             rotationY = turnDirection * paperFrame.fold * 65f
                             cameraDistance = 12f * density.density
                         },
-                    colorFilter = if (!reduceMotion && currentTimeMillis() <= playerFlashUntil) ColorFilter.tint(Color.Red) else null
+                    colorFilter = if(isParalyzed) shockTint(shocks.clock,reduceMotion) else if (!reduceMotion && currentTimeMillis() <= playerFlashUntil) ColorFilter.tint(Color.Red) else null
                 )
-                if (isAxisTransitioning) Image(
-                    painter = painterResource(when (player) {
-                        Player.Leo -> Res.drawable.leo_front
-                        Player.Ian -> Res.drawable.ian_front
-                        Player.Papa -> Res.drawable.papa_front
-                    }),
+                if (isAxisTransitioning && !isParalyzed && !grippingVine) Image(
+                    painter = characterPainter(player, outfit, CharacterPose.Front),
                     contentDescription = null,
                     alignment = Alignment.BottomCenter,
                     contentScale = androidx.compose.ui.layout.ContentScale.FillHeight,
@@ -2302,37 +2777,53 @@ private fun GameSession(
                         cameraDistance = 12f * density.density
                     }
                 )
+                if(!grippingVine && specials.event?.let { !it.intro && it.actor==bedRound.selfId } != true) EquippedAppearance(equipment.loadout)
                 }
 
                 // Render all remote peers (host and client) with wrap-aware positioning
                 if (connectionStatus) {
                     val worldWidthDp = pxToDp(tileMap.width * unitPx)
                     peersState.forEach { (id, peer) ->
-                        if (!peerOnPlayerPlane(peer)) return@forEach
+                        if (!peerOnPlayerPlane(peer) || specials.event?.let { !it.intro && it.actor==id } == true) return@forEach
                         val baseX = centerX + (peer.worldXDp - playerWorldXDp)
                         val candidates = listOf(baseX, baseX - worldWidthDp, baseX + worldWidthDp)
                         val peerHeightDp = pxToDp(peer.heightPx)
                         val peerPlayer = peer.selected ?: Player.Ian
-                        val peerRes = playerSpriteResource(peerPlayer, walking = peer.walkCycle.showWalkingPose)
+                        val peerPose = if (peer.walkCycle.showWalkingPose) CharacterPose.Walk else CharacterPose.Side
                         candidates.forEach { candX ->
                             // Only draw if intersects the viewport horizontally
                             if (candX > -playerWidth && candX < screenWidth + playerWidth) {
-                                Image(
-                                    painter = painterResource(peerRes),
-                                    contentDescription = "Peer $id",
-                                    modifier = Modifier
-                                        .align(Alignment.BottomStart)
-                                        .offset(x = candX, y = -peerHeightDp)
-                                        .height(playerHeight)
-                                        .graphicsLayer { scaleX = playerSpriteScaleX(peerPlayer, peer.facingRight) }
-                                )
+                                Box(Modifier.align(Alignment.BottomStart).offset(x=candX,y=-peerHeightDp).size(playerWidth,playerHeight)) {
+                                    val peerGrip = !shocks.active("P",id.toLong()) && peerSwings[id]!=null
+                                    if(peerGrip) VineCharacterArt(peerPlayer,peer.outfit,playerWidth,playerHeight,peer.facingRight,peerSwings[id]?.angle ?: 0f,"Peer $id")
+                                    else Image(if(shocks.active("P",id.toLong())) shockedPlayerPainter(peerPlayer,peer.outfit) else if(combatMotion.active(id)) attackPlayerPainter(peerPlayer,peer.outfit) else characterPainter(peerPlayer,peer.outfit,peerPose), "Peer $id",
+                                        colorFilter=if(shocks.active("P",id.toLong())) shockTint(shocks.clock,reduceMotion) else null,
+                                        modifier=Modifier.fillMaxSize().requiredWidth(if(shocks.active("P",id.toLong()) || combatMotion.active(id)) playerHeight*1.1f else playerWidth).graphicsLayer { scaleX=playerSpriteScaleX(peerPlayer,peer.facingRight) },
+                                        contentScale=androidx.compose.ui.layout.ContentScale.FillHeight)
+                                    if(!peerGrip) EquippedAppearance(peerEquipment[id] ?: EquipmentLoadout())
+                                }
                             }
                         }
                     }
                 }
 
+                AlienLayer(alien,activeWorldAxis,tileMap.activeSlice,tileMap.width,unit,centerX,localRopePoint(),reduceMotion,shocks)
+                val ropeTargets = buildMap<RopeTarget,RopePoint> {
+                    alien.targetPoint?.let { put(RopeTarget("A",0),it) }
+                    companion.players().forEach { (id,p) -> if(id!=bedRound.selfId) put(RopeTarget("P",id.toLong()),p) }
+                    vm.worldEntities(activeWorldAxis,unitPx).filter { it.kind in listOf("Z","S") && it.hp>0 }.forEach {
+                        put(RopeTarget(it.kind,it.id),RopePoint(it.latitude/1000f,it.longitude/1000f,it.height/1000f))
+                    }
+                }
+                CompanionLayer(companion,ropeTargets,localRopePoint(),activeWorldAxis,tileMap.width,unit,centerX,
+                    equipment.loadout.hand==ItemType.Rope,controlsBlocked)
+
+                if (worldConfig.exploration) BiomeHazardLayer(tileMap, localRopePoint(), activeWorldAxis, unit, centerX, cycle.elapsedMs, reduceMotion)
+                DogLayer(dog, tileMap, localRopePoint(), activeWorldAxis, unit, centerX, isPaused, reduceMotion)
+                SpecialAttackLayer(specials.event,tileMap,localRopePoint(),activeWorldAxis,unit,centerX,reduceMotion)
+                if (worldConfig.exploration) WorkbenchLayer(tileMap,localRopePoint(),activeWorldAxis,unit,centerX)
                 EnemyLayer(vm, tileMap, worldConfig, playerWorldXDp, playerOtherAxisDp,
-                    centerX, screenWidth, unit, playerWidth, playerHeight, isPaused, reduceMotion)
+                    centerX, screenWidth, unit, playerWidth, playerHeight, isPaused, reduceMotion, shocks)
 
                 // Render Potions if present
                 if (potions.isNotEmpty()) {
@@ -2350,10 +2841,10 @@ private fun GameSession(
                                         .align(Alignment.BottomStart)
                                         .offset(x = candX, y = -pHeightDp)
                                         .size(unit)
-                                        .background(Color.Magenta),
+                                        .background(Color.Transparent),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    GameIcon(if (p.type == ItemType.Arrow) GameIconKind.Arrow else GameIconKind.Potion, p.type.name, Modifier.size(unit), tint = Color.White)
+                                    GameIcon(when(p.type) { ItemType.ElectricArrow -> GameIconKind.ElectricArrow; ItemType.Arrow -> GameIconKind.Arrow; else -> GameIconKind.Potion }, InventorySlot(p.type, 1).displayName, Modifier.size(unit), tint = if(p.type==ItemType.ElectricArrow) Color.Yellow else Color.White)
                                 }
                             }
                         }
@@ -2371,10 +2862,10 @@ private fun GameSession(
                 )
                 val mammyBottomDp = pxToDp(mammyGoalBottomRow * unitPx)
                 mammyCandidates.forEach { candX ->
-                    if (mammyVisible && candX > -playerWidth * 3f && candX < screenWidth + playerWidth * 3f) {
+                    if (mammyVisible && bedRound.celebrationRemainingMs == 0L && candX > -playerWidth * 3f && candX < screenWidth + playerWidth * 3f) {
                         Image(
-                            painter = painterResource(Res.drawable.mammy),
-                            contentDescription = "Mammy",
+                            painter = mammyPainter(),
+                            contentDescription = tr("Mammy"),
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .offset(x = candX, y = -mammyBottomDp)
@@ -2388,47 +2879,93 @@ private fun GameSession(
                     }
                 }
 
+                bedRound.celebrationLocation?.let { location ->
+                    if (location.intersects(activeWorldAxis, tileMap.activeSlice, tileMap.width)) {
+                        val dx = shortestWorldDx(xDpToPx(playerWorldXDp), location.along(activeWorldAxis) * unitPx)
+                        MammyCelebration(bedRound.celebrationRemainingMs, reduceMotion,
+                            Modifier.align(Alignment.BottomStart)
+                                .offset(x = centerX + pxToDp(dx) - playerWidth / 2, y = -pxToDp(location.row * unitPx))
+                                .size(playerWidth * 2, playerHeight))
+                    }
+                }
+
                 bedRound.loot.forEach { item ->
                     val location = WorldLocation(item.latitude, item.longitude, item.row)
                     if (location.intersects(activeWorldAxis, tileMap.activeSlice, tileMap.width)) {
                         val base = centerX + pxToDp(location.along(activeWorldAxis) * unitPx) - playerWorldXDp
                         val span = pxToDp(tileMap.width * unitPx)
                         for (x in listOf(base, base - span, base + span)) {
-                            if (x > -unit * 2 && x < screenWidth + unit * 2) Row(
-                                modifier = Modifier.align(Alignment.BottomStart).offset(x, -pxToDp(item.row * unitPx))
-                                    .background(Color.Black.copy(alpha = 0.5f)).padding(3.dp)
-                                    .semantics { contentDescription = "${item.type.name} pickup, ${item.count}" },
-                                verticalAlignment = Alignment.CenterVertically
+                            if (x > -unit * 2 && x < screenWidth + unit * 2) Box(
+                                modifier = Modifier.align(Alignment.BottomStart).offset(x, -pxToDp(item.row * unitPx)).size(unit)
+                                    .semantics { contentDescription = tr("{0} pickup, {1}", InventorySlot(item.type, item.count).displayName, item.count) }
                             ) {
-                                GameIcon(when(item.type) { ItemType.Map -> GameIconKind.Map; ItemType.Arrow -> GameIconKind.Arrow; else -> GameIconKind.Potion }, null, Modifier.size(18.dp), tint = if(item.type == ItemType.Map) Color.Yellow else Color.White)
-                                Text(item.count.toString(), color = Color.White, fontSize = 12.sp)
+                                GameIcon(when(item.type) { ItemType.Map -> GameIconKind.Map; ItemType.Arrow -> GameIconKind.Arrow; ItemType.ElectricArrow -> GameIconKind.ElectricArrow; else -> GameIconKind.Potion }, null, Modifier.fillMaxSize())
+                                if (item.count > 1) Text(item.count.toString(), color = Color.White, fontSize = 7.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    style = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(Color.Black, androidx.compose.ui.geometry.Offset(1f, 1f), 1f)),
+                                    modifier = Modifier.align(Alignment.BottomEnd).offset(y = 2.dp))
                             }
                         }
                     }
                 }
 
+                } // Zoomed world content.
                 } // Raised world viewport; HUD remains anchored to the physical screen.
+                // Notices banner (top center)
+                LaunchedEffect(Unit) {
+                    while (true) {
+                        val now = currentTimeMillis()
+                        notices.removeAll { now - it.createdAt > 3500 }
+                        delay(500)
+                    }
+                }
+                Column(modifier = Modifier.align(Alignment.TopCenter).padding(top = 120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (accessibility.showInfoText) notices.forEach { n ->
+                        Box(modifier = Modifier
+                            .padding(2.dp)
+                            .background(Color.Black.copy(alpha = 0.4f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            Text(n.text, color = Color.White)
+                        }
+                    }
+                }
+
+
+                Row(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 12.dp, end = 92.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    listOf(-1, 1).forEach { direction ->
+                        val index = WorldCamera.zoomLevels.indexOf(cameraZoom)
+                        val next = index + direction
+                        Button(onClick = { cameraZoom = WorldCamera.zoomLevels[next] },
+                            enabled = next in WorldCamera.zoomLevels.indices,
+                            modifier = Modifier.size(48.dp).semantics { contentDescription = tr(if (direction < 0) "Zoom out" else "Zoom in") },
+                            contentPadding = PaddingValues(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.5f))) {
+                            Text(if (direction < 0) "−" else "+", fontSize = 24.sp)
+                        }
+                    }
+                }
+
 
                 // HUD: Player hearts at top center
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 42.dp).clearAndSetSemantics {
-                            contentDescription = "Health: $playerHp of 5 hearts"
+                            contentDescription = tr("Health: {0} of 5 hearts", playerHp)
                             liveRegion = LiveRegionMode.Polite
                         },
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     repeat(5) { i ->
                         val filled = i < playerHp
-                        GameIcon(GameIconKind.Heart, if (filled) "Health" else "Empty heart", tint = if (filled) Color.Red else Color.Gray, filled = filled)
+                        AnimatedHealthHeart(filled, reduceMotion)
                     }
                 }
 
                 // Foreground HUD control: this must stay inside the play layer, above the sky/world.
                 Button(
                     onClick = {
-                        if (isAxisTransitioning || isPaused) return@Button
+                        if (isAxisTransitioning || controlsBlocked) return@Button
                         isAxisTransitioning = true
                         audio?.play(SoundEffect.Turn)
                         movementClock.reset()
@@ -2453,7 +2990,7 @@ private fun GameSession(
                         else tileMap.setActiveSlice(nextAxis, fixedCell, activeCell)
                         vm.swapNpcAxes(::pxToDp)
                         mapVersion++
-                        pushNotice("World turned")
+                        pushNotice(tr("World turned"))
                             if (reduceMotion) paperProgress.snapTo(1f) else paperProgress.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
                             } finally {
                                 // Reduced-motion turns can finish before another composition.
@@ -2463,18 +3000,19 @@ private fun GameSession(
                             }
                         }
                     },
-                    modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 12.dp, end = 12.dp)
-                        .semantics { contentDescription = "Switch latitude longitude" },
+                    modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 12.dp, end = 12.dp).size(56.dp)
+                        .semantics { contentDescription = tr("Switch latitude longitude") },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.42f), contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
-                ) { GameIcon(GameIconKind.Rotate, "Turn the world", tint = Color.White) }
+                    , contentPadding = PaddingValues(8.dp)
+                ) { GameIcon(GameIconKind.Rotate, tr("Turn the world"), Modifier.size(28.dp), tint = Color.White) }
 
                 if (ownsMap) Button(
                     onClick = { isMinimapOpen = !isMinimapOpen },
                     modifier = Modifier.align(Alignment.TopEnd).padding(top = 58.dp, end = 12.dp)
-                        .semantics { contentDescription = if (isMinimapOpen) "Hide minimap" else "Show minimap" },
+                        .semantics { contentDescription = if (isMinimapOpen) tr("Hide minimap") else tr("Show minimap") },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.55f), contentColor = Color.White)
-                ) { Text(if (isMinimapOpen) "Hide map" else "Map") }
+                ) { Text(if (isMinimapOpen) tr("Hide map") else tr("Map")) }
                 if (ownsMap && isMinimapOpen) {
                     val span = tileMap.width * unitPx
                     val playerPoint = minimapPosition(xDpToPx(playerWorldXDp), xDpToPx(playerOtherAxisDp), activeWorldAxis, span)
@@ -2488,6 +3026,10 @@ private fun GameSession(
                             add(MinimapMarker(point.x, point.y, Color(0xFFFFA040)))
                         }
                         val mammyPoint = minimapPosition(mammyLocation.latitude.toFloat(), mammyLocation.longitude.toFloat(), WorldAxis.Latitude, tileMap.width.toFloat())
+                        if (worldConfig.exploration) tileMap.portals.forEach {
+                            add(MinimapMarker(it.location.latitude.toFloat() / tileMap.width,
+                                it.location.longitude.toFloat() / tileMap.depth, it.destination.portalColor))
+                        }
                         if (!cycle.safe) add(MinimapMarker(mammyPoint.x, mammyPoint.y, Color(0xFFFF80C0)))
                         if (connectionStatus) peersState.values.forEach { peer ->
                             val lat = peer.latitude
@@ -2499,32 +3041,50 @@ private fun GameSession(
                         }
                     }
                     WorldMinimap(markers, playerPoint, activeWorldAxis,
-                        Modifier.align(Alignment.TopEnd).padding(top = 130.dp, end = 100.dp))
+                        Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 170.dp).zIndex(6f)
+                            .heightIn(max = (viewportHeight - 40.dp).coerceAtLeast(80.dp)).verticalScroll(rememberScrollState()),
+                        showPortals = worldConfig.exploration)
                 }
+
+                val canCraftHere = !paused && !syncingWorld && !isParalyzed && playerHp > 0 &&
+                    !isJumping && specials.event == null && Crafting.nearby(tileMap,localRopePoint()) != null
+                if (canCraftHere) Button(onClick={isInventoryOpen=false;isCraftingOpen=true},
+                    enabled=!controlsBlocked,modifier=Modifier.align(Alignment.TopStart).padding(top=110.dp,start=14.dp)) {
+                    Text(tr("Craft"))
+                }
+                if(isCraftingOpen) CraftingDialog(vm.bag,craftingPending,canCraftHere,onMake={ id ->
+                    if(canCraftHere && !craftingPending && Crafting.plan(vm.bag,id).result==CraftResult.Crafted) {
+                        if(isHostSelected==false) craftingPending=requestWorldAction("CRAFT",listOf(id))
+                        else finishCraft(id)
+                    }
+                },onClose={isCraftingOpen=false})
 
                 // Inventory HUD: collapsed shortcut plus expandable slots
                 val inventorySlotSize = 48.dp
                 val inventorySlotIconSize = 22.dp
                 val inventorySlotCountSize = 14.sp
-                val visibleInventoryIndexes = if (isInventoryOpen) {
-                    (0 until inventorySlots).toList()
-                } else {
-                    listOf(vm.selectedSlot.intValue.coerceIn(0, inventorySlots - 1))
-                }
+                val visibleInventoryIndexes = listOf(vm.selectedSlot.intValue.coerceIn(0,inventorySlots-1))
+                if(isInventoryOpen) InventoryDialog(vm.bag,vm.selectedSlot.intValue,equipment,
+                    onSelect={ i -> vm.selectedSlot.intValue=i
+                        if(inventory[i].type==ItemType.Rope) equipment.loadout=equipment.loadout.copy(hand=ItemType.Rope)
+                    },onClose={isInventoryOpen=false})
                 Row(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .safeDrawingPadding()
+                        // Keep expanded slots and Close above the movement/action controls.
                         .padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
                         onClick = { isInventoryOpen = !isInventoryOpen },
+                        modifier = Modifier.size(48.dp),
+                        contentPadding = PaddingValues(10.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.35f), contentColor = Color.White),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                     ) {
-                        Text(if (isInventoryOpen) "Close" else "Bag")
+                        GameIcon(GameIconKind.Bag,if (isInventoryOpen) tr("Close") else tr("Bag"),Modifier.size(28.dp))
                     }
                     visibleInventoryIndexes.forEach { i ->
                         val slot = inventory[i]
@@ -2539,12 +3099,12 @@ private fun GameSession(
                                     contentDescription = "${slot.displayName}, ${slot.count}"
                                     role = Role.Button
                                     selected = isSelected
-                                    onClick("Select ${slot.displayName}") {
+                                    onClick(tr("Select {0}", slot.displayName)) {
                                         vm.selectedSlot.intValue = i
                                         isInventoryOpen = true
                                         true
                                     }
-                                    if (slot.type == ItemType.Block && slot.count > 0) onLongClick("Choose block shape") {
+                                    if (slot.type == ItemType.Block && slot.count > 0) onLongClick(tr("Choose block shape")) {
                                         vm.selectedSlot.intValue = i
                                         isShapePickerOpen = true
                                         true
@@ -2568,10 +3128,9 @@ private fun GameSession(
                         ) {
                             if (slot.type != null && slot.count > 0) {
                                 if (slot.type == ItemType.Block) {
-                                    Box(Modifier.size(inventorySlotIconSize)
-                                        .background(slot.material!!.color)
-                                        .border(1.dp, Color.White.copy(alpha = 0.5f)))
-                                } else GameIcon(when(slot.type) { ItemType.Arrow -> GameIconKind.Arrow; ItemType.Map -> GameIconKind.Map; else -> GameIconKind.Potion }, null, Modifier.size(inventorySlotIconSize), tint = Color.White)
+                                    BlockMaterialIcon(slot.material ?: BlockMaterial.Grass,Modifier.size(inventorySlotIconSize))
+                                } else if(slot.type.isEquipment) EquipmentIcon(slot.type,Modifier.size(inventorySlotIconSize))
+                                else GameIcon(when(slot.type) { ItemType.Arrow -> GameIconKind.Arrow; ItemType.ElectricArrow -> GameIconKind.ElectricArrow; ItemType.Map -> GameIconKind.Map; else -> GameIconKind.Potion }, null, Modifier.size(inventorySlotIconSize), tint = if(slot.type==ItemType.ElectricArrow) Color.Yellow else Color.White)
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
@@ -2592,7 +3151,7 @@ private fun GameSession(
                             modifier = Modifier.background(Color.Black.copy(alpha = 0.7f)).padding(3.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text("Shape", color = Color.White, fontSize = 9.sp)
+                            Text(tr("Shape"), color = Color.White, fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 BlockShape.entries.forEach { shape ->
                                     Button(
@@ -2636,11 +3195,11 @@ private fun GameSession(
                         if (newSearch) {
                             repeat(maxZombies) { spawnZombieRandom() }
                             repeat(maxSkeletons) { spawnSkeletonRandom() }
-                            pushNotice("Find Mammy before nightfall!")
+                            pushNotice(tr("Find Mammy before nightfall!"))
                         }
                         repeat(cycle.wavesSince(previous)) {
-                            spawnZombieRandom()
-                            spawnSkeletonRandom()
+                            if(!worldConfig.unlimited || zombies.size < 16) spawnZombieRandom()
+                            if(!worldConfig.unlimited || skeletons.size < 12) spawnSkeletonRandom()
                         }
                     }
                 }
@@ -2648,8 +3207,6 @@ private fun GameSession(
 
             // Zombie AI loop moved into GameViewModel (per-zombie jobs)
 
-            // A small ticker to force recomposition as we smooth remote peers
-            var frameTick by remember { mutableStateOf(0) }
             // Smoothly interpolate remote players' movement to avoid jumpy motion
             LaunchedEffect(connectionStatus, unitPx) {
                 var lastFrameNs = nanoTime()
@@ -2685,20 +3242,20 @@ private fun GameSession(
                         peer.worldXPx = ((peer.worldXPx % worldWidthPx) + worldWidthPx) % worldWidthPx
                         peer.worldXDp = pxToDp(peer.worldXPx)
                     }
-                    // bump a frame tick to trigger recomposition even if local state didn't change
-                    frameTick = (frameTick + 1) and 0x7FFFFFFF.toInt()
                     delay(16L)
                 }
             }
-            // Read tick so compose observes it
-            val _tick = frameTick
+            // Peer positions are interpolated each frame. Observe the resulting support,
+            // so moving away or disconnecting also starts a fall for a stationary rider.
+            val peerSupportTop = supportingPeerTop(xDpToPx(playerWorldXDp), heightPx)
 
             // Start falling if leaving support (walk off edges)
-            LaunchedEffect(playerWorldXDp, isJumping, activeWorldAxis, isAxisTransitioning, zombies, skeletons, mapVersion) {
-                if (!isJumping && !isAxisTransitioning) {
+            LaunchedEffect(playerWorldXDp, isJumping, activeWorldAxis, isAxisTransitioning, zombies, skeletons, mapVersion, peerSupportTop, vineStand, vineSwing != null) {
+                if (!isJumping && !isAxisTransitioning && vineStand == null && vineSwing == null) {
                     val xPx = xDpToPx(playerWorldXDp)
                     val cols = playerOverlappingColumns(xPx)
                     val supportedTopPxCandidates = mutableListOf<Float>()
+                    peerSupportTop?.let { supportedTopPxCandidates += it }
                     for (c in cols) {
                         // Support exists if there is a solid tile directly under the player's bottom
                         val rowUnder = floor((heightPx - 0.001f) / unitPx).toInt()
@@ -2855,14 +3412,19 @@ private fun GameSession(
                     val elapsedMs = (nowNs - lastFrameNs) / 1_000_000L
                     lastFrameNs = nowNs
                     val previousX = xDpToPx(playerWorldXDp)
-                    val v = if (isPlacePreviewing || isAxisTransitioning || isPaused) 0f else joystickX
-                    val steps = if (isPaused || isAxisTransitioning || isPlacePreviewing) {
+                    val v = if (vineSwing != null || isPlacePreviewing || isAxisTransitioning || controlsBlocked) 0f else joystickX
+                    val steps = if (controlsBlocked || isAxisTransitioning || isPlacePreviewing) {
                         movementClock.reset()
                         0
                     } else movementClock.advance(nowNs)
-                    if (abs(v) > 0.01f) {
+                    val storm = hazardContacts.firstOrNull { it.kind == HazardKind.Tornado }
+                    val wind = if (storm == null) 0f else {
+                        val midpoint = if (activeWorldAxis == WorldAxis.Latitude) storm.latitude + storm.width / 2f else storm.longitude + storm.depth / 2f
+                        if (xDpToPx(playerWorldXDp) / unitPx < midpoint) -6f else 6f
+                    }
+                    if (vineSwing == null && (abs(v) > 0.01f || wind != 0f)) {
                         repeat(steps) {
-                            val deltaPx = v * maxSpeedPxPerSec * dt
+                            val deltaPx = (v * maxSpeedPxPerSec * equipment.loadout.speedMultiplier * (if(equipment.blocking) .5f else 1f) * BiomeHazards.speed(hazardContacts) + wind * unitPx) * dt
                             playerWorldXDp = moveHorizontalSubStepped(playerWorldXDp, deltaPx, heightPx)
                         }
                         // Preserve the full aim direction when the stick is released.
@@ -2877,7 +3439,7 @@ private fun GameSession(
 
             var accessibleMoveJob by remember { mutableStateOf<Job?>(null) }
             fun stepAccessibly(direction: Float) {
-                if (isPaused || isAxisTransitioning || accessibleMoveJob?.isActive == true) return
+                if (controlsBlocked || isAxisTransitioning || accessibleMoveJob?.isActive == true) return
                 accessibleMoveJob = scope.launch {
                     joystickY = 0f
                     joystickX = direction
@@ -2885,6 +3447,10 @@ private fun GameSession(
                 }
             }
             fun aimAccessibly(up: Boolean) {
+                if((vineSwing!=null || vineStand!=null || SwingVines.grab(localRopePoint(),tileMap)!=null) && !controlsBlocked && accessibleMoveJob?.isActive!=true) {
+                    accessibleMoveJob=scope.launch { joystickY=if(up) 1f else -1f;try { delay(250L) } finally { joystickY=0f } }
+                    return
+                }
                 if (!isPaused) {
                     lastDirection = vectorToDirection(0f, if (up) 1f else -1f)
                     previewSelectedFacing = lastDirection
@@ -2901,12 +3467,12 @@ private fun GameSession(
                 Column(Modifier.align(Alignment.BottomStart).safeDrawingPadding().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        AccessibleDirectionButton("Step left", "←", !isPaused) { stepAccessibly(-1f) }
-                        AccessibleDirectionButton("Step right", "→", !isPaused) { stepAccessibly(1f) }
+                        AccessibleDirectionButton(tr("Step left"), "←", !isPaused) { stepAccessibly(-1f) }
+                        AccessibleDirectionButton(tr("Step right"), "→", !isPaused) { stepAccessibly(1f) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        AccessibleDirectionButton("Aim up", "↑", !isPaused) { aimAccessibly(true) }
-                        AccessibleDirectionButton("Aim down", "↓", !isPaused) { aimAccessibly(false) }
+                        AccessibleDirectionButton(tr(if(vineSwing!=null || vineStand!=null || SwingVines.grab(localRopePoint(),tileMap)!=null) "Climb up" else "Aim up"), "↑", !isPaused) { aimAccessibly(true) }
+                        AccessibleDirectionButton(tr(if(vineSwing!=null || vineStand!=null) "Climb down" else "Aim down"), "↓", !isPaused) { aimAccessibly(false) }
                     }
                 }
             } else Box(
@@ -2916,12 +3482,12 @@ private fun GameSession(
                     .padding(16.dp)
                     .size(joystickSize)
                     .semantics {
-                        contentDescription = "Move and aim"
+                        contentDescription = tr("Move and aim")
                         customActions = listOf(
-                            CustomAccessibilityAction("Step left") { stepAccessibly(-1f); true },
-                            CustomAccessibilityAction("Step right") { stepAccessibly(1f); true },
-                            CustomAccessibilityAction("Aim up") { aimAccessibly(true); true },
-                            CustomAccessibilityAction("Aim down") { aimAccessibly(false); true }
+                            CustomAccessibilityAction(tr("Step left")) { stepAccessibly(-1f); true },
+                            CustomAccessibilityAction(tr("Step right")) { stepAccessibly(1f); true },
+                            CustomAccessibilityAction(tr("Aim up")) { aimAccessibly(true); true },
+                            CustomAccessibilityAction(tr("Aim down")) { aimAccessibly(false); true }
                         )
                     }
                     .drawBehind {
@@ -3001,6 +3567,19 @@ private fun GameSession(
                 )
             }
 
+            Column(Modifier.align(Alignment.TopStart).safeDrawingPadding().padding(start=12.dp,top=60.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                val attached = companion.links.any { it.owner==bedRound.selfId || it.target==RopeTarget("P",bedRound.selfId.toLong()) }
+                if(companion.links.any { it.owner==bedRound.selfId && it.target.kind!="C" })
+                    Button(onClick={companion.request("PULL")},enabled=!controlsBlocked) { Text(tr("Pull to my position")) }
+                if(attached) Button(onClick={companion.request("RELEASE")},enabled=!controlsBlocked) { Text(tr("Release rope")) }
+                if(equipment.loadout.shield) {
+                    val blockInteraction=remember { MutableInteractionSource() }
+                    val held by blockInteraction.collectIsPressedAsState()
+                    LaunchedEffect(held,controlsBlocked) { equipment.blocking=held && !controlsBlocked }
+                    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { equipment.blocking=false } }
+                    Button(onClick={},interactionSource=blockInteraction,enabled=!controlsBlocked) { Text(tr("Hold Block")) }
+                }
+            }
             // Bottom-right: Jump and Hit buttons, transparent containers
             Column(
                 modifier = Modifier
@@ -3011,8 +3590,8 @@ private fun GameSession(
             ) {
                 Button(
                     onClick = { jump() },
-                    modifier = Modifier.semantics { contentDescription = "Jump" },
-                    enabled = !isJumping && !isPaused,
+                    modifier = Modifier.semantics { contentDescription = tr("Jump") },
+                    enabled = !isJumping && !controlsBlocked,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17324E), contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
                 ) { ActionIcon(ActionIconKind.Jump) }
@@ -3021,7 +3600,7 @@ private fun GameSession(
                 val isHitPressed by hitInteraction.collectIsPressedAsState()
                 var lastHitAtMs by remember { mutableLongStateOf(0L) }
                 fun throttledHit(minDelayMs: Long = 200L) {
-                    if (isPaused) return
+                    if (controlsBlocked) return
                     val now = currentTimeMillis()
                     if (now - lastHitAtMs >= minDelayMs) {
                         lastHitAtMs = now
@@ -3042,8 +3621,8 @@ private fun GameSession(
                     // Fast taps can begin/end between compositions, bypassing the hold effect.
                     // The shared throttle prevents a second hit when the hold already fired.
                     onClick = { throttledHit() },
-                    modifier = Modifier.semantics { contentDescription = "Hit" },
-                    enabled = !isPaused,
+                    modifier = Modifier.semantics { contentDescription = tr("Hit") },
+                    enabled = !controlsBlocked,
                     interactionSource = hitInteraction,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17324E), contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
@@ -3056,8 +3635,8 @@ private fun GameSession(
                     else -> ActionIconKind.Place
                 }
                 val selectedActionDescription = when (selectedActionIcon) {
-                    ActionIconKind.Use -> "Use"
-                    else -> "Place"
+                    ActionIconKind.Use -> tr("Use")
+                    else -> tr("Place")
                 }
                 LaunchedEffect(isPlacePressed, isPaused) {
                     if (isPaused) { isPlacePreviewing = false; return@LaunchedEffect }
@@ -3080,7 +3659,7 @@ private fun GameSession(
                         previewSelectedFacing = null
                     },
                     modifier = Modifier.semantics { contentDescription = selectedActionDescription },
-                    enabled = !isPaused,
+                    enabled = !controlsBlocked,
                     interactionSource = placeInteraction,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17324E), contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)

@@ -5,6 +5,21 @@ import kotlin.test.*
 class BedRoundGameTest {
     private fun world() = TileMap(48, 18).also { it.seedGroundBand() }
 
+    @Test fun bedAppearsAtSearchStartAndStaysFixedWhenRopedOrNightFalls() {
+        val game = BedRoundGame(world(), PlayerInventory())
+        var player = WorldLocation(3, 10, 3)
+        game.position = { player }
+        game.advance(100, listOf(player))
+        val bed = assertNotNull(game.bed)
+        assertFalse(game.cycle.hunting)
+        repeat(5) {
+            player = WorldLocation(10 + it * 4, 20, 3)
+            assertTrue(game.ensureGuideBed(0))
+            game.advance(70_000, listOf(player))
+            assertEquals(bed, game.bed)
+        }
+    }
+
     @Test fun huntSpawnsOnceRescueClearsMapAndPeaceDelaysMammyRelocation() {
         var now = 1000L
         val bag = PlayerInventory()
@@ -15,6 +30,9 @@ class BedRoundGameTest {
         game.position = { WorldLocation(bed.latitude, bed.longitude, bed.row) }
         repeat(5) { game.hit(bed.latitude, bed.longitude, bed.row + it % 2); now += 250 }
         assertNull(game.bed)
+        assertEquals(0, bag.slots.sumOf { it.count })
+        assertEquals(16, game.loot.sumOf { it.count })
+        game.loot.toList().forEach { game.collect(it.id, it.count) }
         assertEquals(1, bag.slots.filter { it.type == ItemType.Map }.sumOf { it.count })
         assertEquals(5, bag.slots.filter { it.type == ItemType.Potion }.sumOf { it.count })
         assertEquals(10, bag.slots.filter { it.type == ItemType.Arrow }.sumOf { it.count })
@@ -31,9 +49,9 @@ class BedRoundGameTest {
         game.advance(1, emptyList())
         assertFalse(game.cycle.safe)
         assertNotEquals(previousMammy, game.mammy)
-        assertNull(game.bed)
+        val nextBed = assertNotNull(game.bed)
         game.advance(300_000, emptyList())
-        assertNotNull(game.bed)
+        assertEquals(nextBed, game.bed)
     }
 
     @Test fun fullBagDropsEverythingAndRescueRemovesOnlyMapLoot() {
@@ -69,9 +87,13 @@ class BedRoundGameTest {
         val b = assertNotNull(host.bed)
         host.position = { WorldLocation(b.latitude, b.longitude, b.row) }
         repeat(5) { host.receive(7, "HIT;${host.roundId};${b.id};${b.latitude};${b.longitude};${b.row}"); now += 250 }
-        val grant = messages.single { it.startsWith("GRANT;") }
-        client.receive(0, grant)
-        client.receive(0, grant)
+        assertTrue(messages.none { it.startsWith("GRANT;") })
+        assertEquals(0, clientBag.slots.sumOf { it.count })
+        host.loot.toList().forEach { host.collect(it.id, it.count, 7) }
+        messages.filter { it.startsWith("GRANT;") }.forEach { grant ->
+            client.receive(0, grant)
+            client.receive(0, grant)
+        }
         assertEquals(16, clientBag.slots.sumOf { it.count })
         assertEquals(0, hostBag.slots.sumOf { it.count })
         client.receive(0, host.snapshot())

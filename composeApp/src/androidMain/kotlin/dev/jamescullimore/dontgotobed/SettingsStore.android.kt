@@ -38,3 +38,5 @@ actual fun rememberPurchaseRecoveryStore(): SettingsStore {
 actual fun GameBackHandler(enabled: Boolean, onBack: () -> Unit) {
     androidx.activity.compose.BackHandler(enabled, onBack)
 }
+
+internal actual fun systemLanguageCode(): String = java.util.Locale.getDefault().language

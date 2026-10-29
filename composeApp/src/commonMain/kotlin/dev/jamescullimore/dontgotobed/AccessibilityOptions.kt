@@ -13,14 +13,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Local presentation/input preferences; deliberately not part of the shared world. */
-data class AccessibilityOptions(val buttonControls: Boolean = false, val reduceMotion: Boolean = false)
+data class AccessibilityOptions(val buttonControls: Boolean = false, val reduceMotion: Boolean = false, val showInfoText: Boolean = true)
 
 fun SettingsStore.loadAccessibilityOptions() = AccessibilityOptions(
     buttonControls = readInt("buttonControls", 0) == 1,
-    reduceMotion = readInt("reduceMotion", 0) == 1
+    reduceMotion = readInt("reduceMotion", 0) == 1,
+    showInfoText = readInt("showInfoText", 1) == 1
 )
 
 fun SettingsStore.save(options: AccessibilityOptions) {
+    writeInt("showInfoText", if (options.showInfoText) 1 else 0)
     writeInt("buttonControls", if (options.buttonControls) 1 else 0)
     writeInt("reduceMotion", if (options.reduceMotion) 1 else 0)
 }
@@ -31,15 +33,16 @@ expect fun rememberSystemReducedMotion(): Boolean
 @Composable
 fun AccessibilitySettings(options: AccessibilityOptions, onChange: (AccessibilityOptions) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Color(0xFF10243A)).padding(12.dp)) {
-        Text("Accessibility", color = Color.White)
+        Text(tr("Accessibility"), color = Color.White)
         listOf(
-            Triple("Button controls", "Move in short steps without dragging the joystick.", options.buttonControls),
-            Triple("Reduce motion and flashes", "Turn the world instantly and remove hit flashes. System reduced motion is also respected.", options.reduceMotion)
+            Triple(tr("Button controls"), tr("Move in short steps without dragging the joystick."), options.buttonControls),
+            Triple(tr("Reduce motion and flashes"), tr("Turn the world instantly and remove hit flashes. System reduced motion is also respected."), options.reduceMotion),
+            Triple(tr("Show info text"), tr("Show gameplay tips and action messages. Tap the top status for a temporary hint."), options.showInfoText)
         ).forEachIndexed { index, (label, detail, checked) ->
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 .semantics(mergeDescendants = true) {}
                 .toggleable(checked, role = Role.Switch, onValueChange = {
-                    onChange(if (index == 0) options.copy(buttonControls = it) else options.copy(reduceMotion = it))
+                    onChange(when(index) { 0 -> options.copy(buttonControls = it); 1 -> options.copy(reduceMotion = it); else -> options.copy(showInfoText = it) })
                 }).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f)) {
                     Text(label, color = Color.White)

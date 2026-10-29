@@ -1,0 +1,47 @@
+Política de privacidad — Android
+
+Responsable
+James Cullimore publica Don't Go To Bed para Android (identificador: dev.jamescullimore.dontgotobed). Para consultas de soporte o privacidad: info@jamescullimore.dev. Fecha de entrada en vigor: 2026-10-03.
+
+Jugar
+No necesitas una cuenta del juego, nombre real, correo electrónico ni fecha de nacimiento. El juego guarda tus preferencias del mundo en el dispositivo. Los mundos de exploración tienen tres ranuras en el dispositivo del anfitrión, con cambios del terreno, inventario y posición del anfitrión, equipo y perro. Los archivos locales conservan una copia anterior de recuperación. Los otros modos empiezan de nuevo. Las copias del dispositivo pueden incluir estos archivos según tus ajustes. No operamos un servidor de juego en línea. La aplicación no incluye publicidad, chat público, acceso mediante redes sociales ni analítica de juego.
+
+Multijugador cercano
+Al elegir Crear partida o Unirse, los dispositivos de la misma red local intercambian el personaje seleccionado, un identificador temporal de jugador, direcciones de red, posiciones, acciones y estado del mundo, incluidos terreno, enemigos y objetos. El dispositivo anfitrión procesa estos datos para ejecutar la partida compartida. La latitud y longitud del mundo son coordenadas ficticias, no tu ubicación geográfica. Se usan conexiones WebSocket locales sin cifrar; utiliza una red de confianza. No hay búsqueda de partidas por Internet. Las conexiones terminan al cerrar la sesión; los mundos de exploración guardados permanecen en el dispositivo del anfitrión.
+
+Al crear una partida, la app anuncia un nombre temporal y los datos de conexión en la red local. Al abrir el panel Unirse, busca estas partidas cercanas. La búsqueda termina al cerrar el panel o pasar la app a segundo plano; el anuncio termina al dejar de alojar. No se necesita el nombre real ni permiso de ubicación.
+
+Permisos y almacenamiento
+Los permisos de Internet y estado de red de Android permiten el multijugador cercano y las compras opcionales. La aplicación no solicita ubicación, contactos, cámara, micrófono ni fotos. Las preferencias pueden incluirse en las copias de seguridad o transferencias de Android según tus ajustes. Las cachés e identificadores del SDK de compras se excluyen de las reglas de copia de seguridad de Android.
+
+Propinas opcionales
+Todos los personajes y el juego son gratuitos. Un adulto puede dejar una propina opcional, única y repetible mediante Google Play. Las propinas no desbloquean contenido ni ventajas y no son suscripciones. RevenueCat solo se configura tras superar el control para adultos y si hay una clave de compras configurada. Abrir esa página puede contactar con RevenueCat y la tienda aunque no se complete ninguna compra.
+
+Información de compras
+Google Play gestiona las credenciales de pago; no recibimos los datos de tu tarjeta. RevenueCat procesa el historial de compras, identificadores de transacciones, un identificador anónimo de usuario, información de productos y precios y datos técnicos necesarios, como versión de la aplicación y del sistema, configuración regional y datos de red. Esto permite validar recibos, atender compras, prevenir fraudes y mostrar informes en RevenueCat. No vinculamos tu personaje, historial de juego, nombre ni correo a RevenueCat ni activamos integraciones de atribución publicitaria. Puede guardarse localmente un indicador de propina pendiente para explicar un pago que espera aprobación.
+
+Mensajes de soporte
+Si nos contactas, recibimos tu dirección de correo y la información que envías. La usamos para responder, investigar problemas o atender solicitudes de privacidad. No envíes contraseñas, datos de tarjetas ni información personal innecesaria sobre menores. Conservamos los mensajes hasta 12 meses después de cerrar la solicitud y luego los eliminamos, salvo obligación legal de conservarlos más tiempo.
+
+Menores y familias
+Los menores pueden jugar sin abrir la página opcional de apoyo. Las compras están tras un control para adultos y usan los controles de compra y aprobación parental de la tienda. No pedimos a los menores crear perfiles, subir contenido ni enviar datos personales. Un progenitor o tutor puede contactarnos sobre información que crea que un menor nos ha proporcionado.
+
+Motivos del tratamiento
+Tratamos la información necesaria para prestar el juego, las compras o el soporte solicitados, prevenir fraudes y cumplir obligaciones legales. Cuando corresponda, las bases jurídicas son prestar el servicio solicitado, nuestros intereses legítimos en operarlo, protegerlo y responder a consultas, y el cumplimiento de obligaciones legales. Comprar es opcional. Los permisos se pueden cambiar en los ajustes del dispositivo.
+
+Conservación y eliminación
+Salir de una sesión termina su estado temporal. Desinstalar la aplicación elimina sus datos locales, salvo copias de seguridad que conserves. Por regla general, conservamos datos seudónimos de compras y transacciones hasta 3 años después de la última compra y luego los eliminamos o anonimizamos. Los datos de facturación o registros exigidos por ley pueden conservarse durante el plazo legal. Google Play y RevenueCat también tratan datos según sus propias políticas. Los registros de la tienda pueden permanecer según sus requisitos legales y de conservación. Desinstalar no elimina esos registros ni cancela aprobaciones pendientes. Escribe a info@jamescullimore.dev para solicitar acceso, rectificación o eliminación de datos bajo nuestro control. Podemos necesitar información limitada de la transacción para localizar una compra anónima; nunca envíes credenciales de pago.
+
+Proveedores y tratamiento internacional
+Google Play y RevenueCat tratan datos según sus condiciones y avisos de privacidad. Los datos pueden tratarse fuera de tu país, incluido Estados Unidos, con las garantías de transferencia aplicables. No vendemos datos personales ni los usamos para publicidad dirigida. Este sitio web no usa analítica, píxeles publicitarios, cookies ni fuentes externas. Se aloja en GitHub Pages, cuya infraestructura puede tratar registros de solicitudes, como direcciones IP, para servir y proteger las páginas. GitHub gestiona esos registros según su política de privacidad.
+
+Opciones y derechos
+Puedes jugar en solitario, abandonar el multijugador, no abrir la página de apoyo y no dejar propinas. Según tu ubicación, puedes tener derecho a acceder, rectificar, eliminar, limitar u oponerte al tratamiento, obtener una copia de los datos o reclamar ante la autoridad de protección de datos. Contacta con info@jamescullimore.dev. Esto no afecta a reembolsos gestionados por la tienda ni a registros que deba conservar.
+
+Cambios
+Actualizaremos esta página y su fecha cuando cambien las prácticas. Comunicaremos cambios importantes cuando sea obligatorio. La política debe describir la versión que se ofrece en la tienda.
+
+Políticas de proveedores
+RevenueCat: https://www.revenuecat.com/privacy-policy
+GitHub: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+Google Play: https://policies.google.com/privacy

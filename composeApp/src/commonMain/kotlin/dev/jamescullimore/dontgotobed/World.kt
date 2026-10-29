@@ -20,7 +20,8 @@ data class BlockDamageResult(val material: BlockMaterial, val remainingHealth: I
 }
 
 /** A wrapped voxel world. Legacy x/y calls intentionally address the active 2D slice. */
-class TileMap(val width: Int, val height: Int, val depth: Int = width, private val source: TileMap? = null) {
+class TileMap(val width: Int, val height: Int, val depth: Int = width, private val source: TileMap? = null, val exploration: Boolean = source?.exploration ?: false, val portalSeed: Int = source?.portalSeed ?: 0) {
+    internal val portals: List<WorldPortal> by lazy { ExplorationWorld.portals(portalSeed) }
     var projectileRevision by mutableIntStateOf(0)
         private set
     val maxHealth = BlockMaterial.Grass.durability
@@ -36,6 +37,21 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
     private var nextManagedId = Int.MAX_VALUE
     private val changedBlocks: MutableSet<Int> = source?.changedBlocks ?: mutableSetOf()
 
+    private val saveChanges: LongArray = source?.saveChanges ?: longArrayOf(0)
+    internal val saveRevision get() = saveChanges[0]
+    private val saveDirty:MutableSet<Int> = source?.saveDirty ?: mutableSetOf()
+    private val savedPieces:MutableMap<Int,Block> = source?.savedPieces ?: mutableMapOf()
+    private fun markChanged(id:Int) { changedBlocks.add(id);saveDirty.add(id);saveChanges[0]++ }
+    /** Only changed pieces need copying; earlier snapshots keep their immutable block values. */
+    internal fun captureSaveBlocks():List<Block> {
+        for(id in saveDirty) {
+            val block=blocks[id]
+            if(block==null || block.managed) savedPieces.remove(id) else savedPieces[id]=block.copy()
+        }
+        saveDirty.clear()
+        return savedPieces.values.toList()
+    }
+
     fun networkBlocks(): List<Block> = blocks.values.filter { !it.managed }.map { it.copy() }
 
     fun takeNetworkChanges(): List<Pair<Int, Block?>> = changedBlocks.map { it to blocks[it]?.copy() }.also { changedBlocks.clear() }
@@ -47,6 +63,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
         changes.forEach { (id, b) ->
             if (b != null && !b.managed) {
                 blocks[id] = b.copy()
+                markChanged(id)
                 if (b.shape == BlockShape.RampLeft || b.shape == BlockShape.RampRight) ramps[id] = blocks.getValue(id)
                 blocksBySlice[b.fixedCoordinate].add(id)
                 for (dx in 0 until b.w) for (dy in 0 until b.h) {
@@ -60,7 +77,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
             }
         }
         changedBlocks.clear()
-        projectileRevision++
+        projectileRevision++;saveChanges[0]++
     }
 
     /** Independent collision plane over shared voxels, without copying the world. */
@@ -74,14 +91,14 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
     fun idx(latitude: Int, longitude: Int, y: Int): Int = ((y * depth) + wrap(longitude, depth)) * width + wrap(latitude)
     fun inY(y: Int) = y in 0..<height
     fun getVoxel(latitude: Int, longitude: Int, y: Int): Boolean =
-        inY(y) && occ[idx(latitude, longitude, y)] != -1
+        inY(y) && ((exploration && ExplorationWorld.boundary(latitude, longitude)) || occ[idx(latitude, longitude, y)] != -1)
     fun damageVoxel(latitude: Int, longitude: Int, y: Int, amount: Int) {
         if (!inY(y)) return
         val block = blocks[occ[idx(latitude, longitude, y)]] ?: return
         // Encounter objects are damaged atomically by their owner, never by a stray arrow.
         if (block.managed) return
         block.health = (block.health - amount).coerceAtLeast(0)
-        if (!block.managed) changedBlocks.add(block.id)
+        if (!block.managed) markChanged(block.id)
         if (block.health == 0) removeBlockLocked(block.id)
         projectileRevision++
     }
@@ -92,7 +109,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
 
     fun get(x: Int, y: Int): Boolean {
         if (!inY(y)) return false
-        return occ[sliceIndex(x, y)] != -1
+        return (exploration && ExplorationWorld.boundary(if (activeAxis == WorldAxis.Latitude) x else activeSlice, if (activeAxis == WorldAxis.Latitude) activeSlice else x)) || occ[sliceIndex(x, y)] != -1
     }
     fun getHealth(x: Int, y: Int): Int {
         if (!inY(y)) return 0
@@ -102,7 +119,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
         if (!inY(y)) return
         val block = blocks[occ[sliceIndex(x, y)]] ?: return
         block.health = health.coerceIn(0, block.maxHealth)
-        if (!block.managed) changedBlocks.add(block.id)
+        if (!block.managed) markChanged(block.id)
         if (block.health <= 0) removeBlockLocked(block.id)
     }
     fun set(x: Int, y: Int, solid: Boolean) {
@@ -191,12 +208,12 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
             val lat = if (axis == WorldAxis.Latitude) wrap(anchor + dx) else fixed
             val lon = if (axis == WorldAxis.Latitude) fixed else wrap(anchor + dx, depth)
             val y = row + dy
-            if (occ[idx(lat, lon, y)] != -1) return -1
+            if (getVoxel(lat, lon, y)) return -1
             occupied[occupiedCount++] = idx(lat, lon, y)
         }
         if (occupiedCount == 0) return -1
         val id = if (managed) nextManagedId-- else if (source != null) source.allocateId() else allocateId()
-        if (!managed) changedBlocks.add(id)
+        if (!managed) markChanged(id)
         blocks[id] = Block(id, anchor, row, w, h, health, health, color, material, shape, axis, fixed, managed)
         if (shape == BlockShape.RampLeft || shape == BlockShape.RampRight) ramps[id] = blocks.getValue(id)
         blocksBySlice[fixed].add(id)
@@ -207,7 +224,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
 
     private fun removeBlockLocked(id: Int) {
         val block = blocks.remove(id) ?: return
-        if (!block.managed) changedBlocks.add(id)
+        if (!block.managed) markChanged(id)
         for (dx in 0 until block.w) for (dy in 0 until block.h) {
             val lat = if (block.axis == WorldAxis.Latitude) block.col + dx else block.fixedCoordinate
             val lon = if (block.axis == WorldAxis.Latitude) block.fixedCoordinate else block.col + dx
@@ -222,7 +239,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
         if (!inY(y)) return 0
         val block = blocks[occ[sliceIndex(x, y)]] ?: return 0
         block.health = (block.health - amount).coerceAtLeast(0)
-        if (!block.managed) changedBlocks.add(block.id)
+        if (!block.managed) markChanged(block.id)
         if (block.health == 0) removeBlockLocked(block.id)
         return block.health
     }
@@ -249,7 +266,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
     fun damagePieceAt(x: Int, y: Int, amount: Int): BlockDamageResult? {
         val block = pieceAt(x, y) ?: return null
         block.health = (block.health - amount).coerceAtLeast(0)
-        if (!block.managed) changedBlocks.add(block.id)
+        if (!block.managed) markChanged(block.id)
         if (block.health == 0) removeBlockLocked(block.id)
         return BlockDamageResult(block.material, block.health)
     }
@@ -271,14 +288,14 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
                 var end = col + 1
                 while (end < width) {
                     val next = blocks[occ[sliceIndex(end, row)]] ?: break
-                    if (next.color != first.color || next.material != first.material || next.health != first.health || next.maxHealth != first.maxHealth) break
+                    if (next.managed != first.managed || next.color != first.color || next.material != first.material || next.health != first.health || next.maxHealth != first.maxHealth) break
                     end++
                 }
                 projected += Block(
                     id = first.id, col = col, row = row, w = end - col, h = 1,
                     health = first.health, maxHealth = first.maxHealth, color = first.color,
                     material = first.material, shape = BlockShape.Square,
-                    axis = activeAxis, fixedCoordinate = activeSlice
+                    axis = activeAxis, fixedCoordinate = activeSlice, managed = first.managed
                 )
                 col = end
             }
@@ -298,7 +315,7 @@ class TileMap(val width: Int, val height: Int, val depth: Int = width, private v
             val previousIndex = lastAtColumn[block.col]
             val previous = if (previousIndex >= 0) merged[previousIndex] else null
             if (previous != null && previous.w == block.w && previous.row + previous.h == block.row &&
-                previous.color == block.color && previous.material == block.material &&
+                previous.managed == block.managed && previous.color == block.color && previous.material == block.material &&
                 previous.health == block.health && previous.maxHealth == block.maxHealth) {
                 merged[previousIndex] = previous.copy(h = previous.h + block.h)
             } else {

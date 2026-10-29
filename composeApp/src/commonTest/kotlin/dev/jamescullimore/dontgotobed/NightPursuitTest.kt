@@ -9,6 +9,16 @@ import kotlin.test.assertTrue
 class NightPursuitTest {
     private fun distance(a: Float, b: Float, span: Float) = abs(((b - a) % span + span * 1.5f) % span - span * 0.5f)
 
+    @Test fun finishesFractionalDepthStepInsteadOfStallingBehindRow() {
+        val map = TileMap(48, 12).also { it.seedGroundBand() }
+        for (unit in listOf(1f, 13.37f, 31.5f)) {
+            val target = 22f * unit
+            val p = NightPursuit.advance(12f * unit, target - 0.004f, 3f * unit,
+                map, unit, 0.016f, 4f * unit, target)
+            assertTrue(WorldRows.same(p.second, target, unit, 48), "unit=$unit, row=${p.second}")
+        }
+    }
+
     @Test fun joinsRowBeforeChasingHorizontallyAcrossWorldSeam() {
         val map = TileMap(48, 12).also { it.seedGroundBand() }
         var p = NightPursuit.advance(36f, 20f, 3f, map, 1f, 0.1f, 4f, 22f)

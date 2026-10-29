@@ -10,13 +10,21 @@ class SettingsStoreTest {
     }
     @Test fun choicesSurviveANewScreenWithoutSavingAWorld() {
         val first = MemoryStore()
-        val chosen = WorldConfig(horizontalSize = 384, initialZombies = 0, initialSkeletons = 12, nearbyEnemyRows = 2, nearbyTerrainRows = 0)
+        val chosen = WorldConfig(horizontalSize = 576, initialZombies = 0, initialSkeletons = 12, nearbyEnemyRows = 2, nearbyTerrainRows = 0, exploration = true, unlimited = true)
         first.save(chosen)
         assertEquals(chosen, MemoryStore(first.values).loadWorldConfig())
-        assertEquals(setOf("worldSize", "zombies", "skeletons", "enemyRows", "terrainRows"), first.values.keys)
+        assertEquals(setOf("unlimited", "exploration", "worldSize", "zombies", "skeletons", "enemyRows", "terrainRows"), first.values.keys)
     }
     @Test fun obsoleteOrCorruptPreferencesCannotAllocateAnUnboundedWorld() {
         val store = MemoryStore(mutableMapOf("worldSize" to Int.MAX_VALUE, "zombies" to -9, "skeletons" to 500, "enemyRows" to -1, "terrainRows" to 99))
         assertEquals(WorldConfig(horizontalSize = 192, initialZombies = 0, initialSkeletons = 12, nearbyEnemyRows = 0, nearbyTerrainRows = 2), store.loadWorldConfig())
+    }
+    @Test fun infoTextIsOnByDefaultAndTheChoiceSurvivesReload() {
+        val store = MemoryStore()
+        assertEquals(true, store.loadAccessibilityOptions().showInfoText)
+        store.save(AccessibilityOptions(showInfoText = false))
+        assertEquals(false, MemoryStore(store.values).loadAccessibilityOptions().showInfoText)
+        store.save(store.loadAccessibilityOptions().copy(reduceMotion = true))
+        assertEquals(false, store.loadAccessibilityOptions().showInfoText)
     }
 }

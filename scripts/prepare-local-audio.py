@@ -8,7 +8,7 @@ source = root / '.jc/release-private/audio'
 if not source.is_dir():
     source = root / '.jc'
 names = ['menu', 'search1', 'search2', 'search3', 'search4', 'panic',
-         'jump', 'hit', 'place', 'arrow', 'damage_taken', 'drink', 'turn']
+         'jump', 'hit', 'place', 'arrow', 'damage_taken', 'drink', 'turn', 'dog_howl']
 missing = [name + '.mp3' for name in names if not (source / (name + '.mp3')).is_file()]
 if missing:
     raise SystemExit('Supply licensed files in .jc first: ' + ', '.join(missing))
@@ -16,4 +16,4 @@ target = root / 'composeApp/src/commonMain/composeResources/files/audio'
 target.mkdir(parents=True, exist_ok=True)
 for name in names:
     shutil.copy2(source / (name + '.mp3'), target / (name + '.mp3'))
-print('Prepared 13 local audio files. Keep them out of public Git.')
+print('Prepared 14 local audio files. Keep them out of public Git.')

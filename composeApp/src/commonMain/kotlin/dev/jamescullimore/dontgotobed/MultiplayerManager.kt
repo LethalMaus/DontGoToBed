@@ -26,6 +26,7 @@ expect class MultiplayerManager(
     }
 
     fun updateListener(newListener: Listener)
+    val discoveryName: String
     fun start()
     fun stop()
     fun sendRoundEvent(payload: String)

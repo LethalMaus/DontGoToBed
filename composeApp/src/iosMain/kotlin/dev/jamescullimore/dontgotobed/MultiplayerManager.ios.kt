@@ -161,12 +161,16 @@ actual class MultiplayerManager actual constructor(
         }
     }
 
+    actual val discoveryName: String = newLanGameName()
+    private val lanDiscovery = LanDiscovery()
+
     actual fun start() {
         shouldKeepTrying = true
         if (isHost) startHostServer() else startClientLoop()
     }
 
     actual fun stop() {
+        lanDiscovery.stop()
         shouldKeepTrying = false
 
         connectJob?.cancel()
@@ -324,6 +328,7 @@ actual class MultiplayerManager actual constructor(
                 return@launch
             }
 
+            if (shouldKeepTrying) lanDiscovery.advertise(discoveryName, port)
             connected = true
             listener.onConnectionChanged(true)
 

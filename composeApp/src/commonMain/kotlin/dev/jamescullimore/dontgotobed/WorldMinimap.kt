@@ -28,34 +28,52 @@ internal fun minimapPosition(along: Float, other: Float, axis: WorldAxis, span: 
         else Offset(wrap(other), wrap(along))
 }
 
+/** Map coordinates are global; exploration displays only the player's current region. */
+internal data class MinimapViewport(val left: Float, val top: Float, val width: Float, val height: Float) {
+    fun contains(point: Offset) = point.x >= left && point.x < left + width && point.y >= top && point.y < top + height
+    fun project(point: Offset) = Offset((point.x - left) / width, (point.y - top) / height)
+}
+
+internal fun minimapViewport(player: Offset, exploration: Boolean): MinimapViewport {
+    if (!exploration) return MinimapViewport(0f, 0f, 1f, 1f)
+    val column = (player.x * 3).toInt().coerceIn(0, 2)
+    val row = (player.y * 2).toInt().coerceIn(0, 1)
+    return MinimapViewport(column / 3f, row / 2f, 1f / 3f, 1f / 2f)
+}
+
 @Composable
-internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: WorldAxis, modifier: Modifier = Modifier) {
+internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: WorldAxis, modifier: Modifier = Modifier, showPortals: Boolean = false) {
+    val viewport = minimapViewport(player, showPortals)
     Column(modifier.background(Color(0xEE10243A)).padding(8.dp)
-        .semantics { contentDescription = "Live world minimap. Latitude left to right, longitude top to bottom." }) {
-        Text("Whole world · Lat → / Long ↓", color = Color.White, fontSize = 10.sp, lineHeight = 12.sp)
-        Canvas(Modifier.size(120.dp).padding(5.dp)) {
+        .semantics { contentDescription = tr("Live world minimap. Latitude left to right, longitude top to bottom.") }) {
+        if(showPortals) Text(tr(ExplorationWorld.biome((player.x*ExplorationWorld.SIZE).toInt(),(player.y*ExplorationWorld.SIZE).toInt()).title),
+            color=Color.White,fontSize=12.sp)
+        if (!showPortals) Text(tr("Whole world · Lat → / Long ↓"), color = Color.White, fontSize = 10.sp, lineHeight = 12.sp)
+        Canvas(Modifier.size(120.dp, if (showPortals) 180.dp else 120.dp).padding(5.dp)) {
             fun point(p: Offset) = Offset(p.x * size.width, p.y * size.height)
             for (i in 0..4) {
                 val fraction = i / 4f
                 drawLine(Color.White.copy(alpha = 0.16f), Offset(size.width * fraction, 0f), Offset(size.width * fraction, size.height))
                 drawLine(Color.White.copy(alpha = 0.16f), Offset(0f, size.height * fraction), Offset(size.width, size.height * fraction))
             }
-            val at = point(player)
+            val at = point(viewport.project(player))
             if (axis == WorldAxis.Latitude) drawLine(Color.Cyan.copy(alpha = 0.35f), Offset(0f, at.y), Offset(size.width, at.y))
             else drawLine(Color.Cyan.copy(alpha = 0.35f), Offset(at.x, 0f), Offset(at.x, size.height))
             markers.forEach { marker ->
-                drawCircle(marker.color, 2.5.dp.toPx(), point(Offset(marker.latitude, marker.longitude)))
+                val location = Offset(marker.latitude, marker.longitude)
+                if (viewport.contains(location)) drawCircle(marker.color, 2.5.dp.toPx(), point(viewport.project(location)))
             }
             drawCircle(Color.Black, 4.dp.toPx(), at)
             drawCircle(Color.Cyan, 3.dp.toPx(), at)
             drawCircle(Color.White, 4.dp.toPx(), at, style = Stroke(1.dp.toPx()))
         }
         Text(buildAnnotatedString {
-            withStyle(SpanStyle(color = Color.Cyan)) { append("● You   ") }
-            withStyle(SpanStyle(color = Color(0xFF608CFF))) { append("● Players\n") }
-            withStyle(SpanStyle(color = Color(0xFFFF80C0))) { append("● Mammy\n") }
-            withStyle(SpanStyle(color = Color.Green)) { append("● Zombies   ") }
-            withStyle(SpanStyle(color = Color(0xFFFFA040))) { append("● Skeletons") }
+            withStyle(SpanStyle(color = Color.Cyan)) { append("● " + tr("You") + "   ") }
+            withStyle(SpanStyle(color = Color(0xFF608CFF))) { append("● " + tr("Players") + "\n") }
+            withStyle(SpanStyle(color = Color(0xFFFF80C0))) { append("● " + tr("Mammy") + "\n") }
+            if (showPortals) withStyle(SpanStyle(color = Color(0xFFD694FF))) { append("● " + tr("Portals") + "\n") }
+            withStyle(SpanStyle(color = Color.Green)) { append("● " + tr("Zombies") + "   ") }
+            withStyle(SpanStyle(color = Color(0xFFFFA040))) { append("● " + tr("Skeletons") + "") }
         }, fontSize = 9.sp, lineHeight = 12.sp)
     }
 }

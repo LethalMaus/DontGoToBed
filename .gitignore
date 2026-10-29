@@ -121,6 +121,7 @@ Desktop.ini
 
 # Licensed originals and personal recordings are supplied privately.
 /composeApp/src/commonMain/composeResources/files/audio/*.mp3
+!/composeApp/src/commonMain/composeResources/files/audio/cat_purr.mp3
 /voice-recordings/
 # Private device diagnostics, identities and local paths.
 /docs/release/assets/device-smoke-2026-09-15/
@@ -134,3 +135,16 @@ Desktop.ini
 /docs/art/
 /docs/talk/
 /docs/release/
+.hotswan/
+
+# Fastlane execution artifacts
+/fastlane/report.xml
+
+# Agent context and publisher production stay in the private workspace.
+.codex/
+.agents/
+AGENTS.md
+CODEX.md
+/MARKETING.md
+/docs/art-review/
+/docs/release-next/

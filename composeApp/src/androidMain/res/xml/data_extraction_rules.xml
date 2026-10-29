@@ -2,8 +2,20 @@
 <data-extraction-rules>
     <cloud-backup>
         <include domain="sharedpref" path="game_settings.xml" />
+        <include domain="file" path="exploration-world-1.save" />
+        <include domain="file" path="exploration-world-1.previous" />
+        <include domain="file" path="exploration-world-2.save" />
+        <include domain="file" path="exploration-world-2.previous" />
+        <include domain="file" path="exploration-world-3.save" />
+        <include domain="file" path="exploration-world-3.previous" />
     </cloud-backup>
     <device-transfer>
         <include domain="sharedpref" path="game_settings.xml" />
+        <include domain="file" path="exploration-world-1.save" />
+        <include domain="file" path="exploration-world-1.previous" />
+        <include domain="file" path="exploration-world-2.save" />
+        <include domain="file" path="exploration-world-2.previous" />
+        <include domain="file" path="exploration-world-3.save" />
+        <include domain="file" path="exploration-world-3.previous" />
     </device-transfer>
 </data-extraction-rules>

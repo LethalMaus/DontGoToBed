@@ -15,14 +15,19 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 @OptIn(ExperimentalResourceApi::class)
 @Composable
 fun PrivacyScreen(onBack: () -> Unit) {
-    var policy by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) { policy = Res.readBytes("files/${privacyPolicyFileName()}").decodeToString() }
+    val language = AppLocale.effective
+    var policy by remember(language) { mutableStateOf<String?>(null) }
+    LaunchedEffect(language) {
+        val filename = privacyPolicyFileName().removeSuffix(".txt") +
+            (if (language == AppLanguage.English) "" else "-${language.code}") + ".txt"
+        policy = Res.readBytes("files/$filename").decodeToString()
+    }
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.safeDrawingPadding().padding(24.dp)) {
-            TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onBack) { Text(tr("Back")) }
             SelectionContainer {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text(policy ?: "Loading privacy policy…", style = MaterialTheme.typography.bodyLarge)
+                    Text(policy ?: tr("Loading privacy policy…"), style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }

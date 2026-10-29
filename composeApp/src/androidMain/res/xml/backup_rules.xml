@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Save preferences only; exclude purchase SDK identity and caches. -->
+<!-- Save preferences and local exploration slots; exclude purchase SDK identity and caches. -->
 <full-backup-content>
     <include domain="sharedpref" path="game_settings.xml" />
+        <include domain="file" path="exploration-world-1.save" />
+        <include domain="file" path="exploration-world-1.previous" />
+        <include domain="file" path="exploration-world-2.save" />
+        <include domain="file" path="exploration-world-2.previous" />
+        <include domain="file" path="exploration-world-3.save" />
+        <include domain="file" path="exploration-world-3.previous" />
 </full-backup-content>

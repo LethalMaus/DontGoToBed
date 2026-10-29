@@ -26,7 +26,8 @@ object WorldReplication {
         if (b == null) "$id" else listOf(id, b.col, b.row, b.w, b.h, b.health, b.maxHealth,
             b.color.value, b.material.ordinal, b.shape.ordinal, b.axis.ordinal, b.fixedCoordinate).joinToString(",")
     }
-    fun decodeBlocks(text: String, map: TileMap): List<Pair<Int, Block?>> = if (text.isEmpty()) emptyList() else text.split('/').map {
+    fun decodeBlocks(text: String, map: TileMap) = decodeBlocks(text,map.width,map.height,map.depth)
+    fun decodeBlocks(text:String,width:Int,height:Int,depth:Int): List<Pair<Int, Block?>> = if (text.isEmpty()) emptyList() else text.split('/').map {
         val p = it.split(',')
         val id = p[0].toInt().also { require(it in 1 until Int.MAX_VALUE / 2) }
         id to if (p.size == 1) null else {
@@ -34,8 +35,8 @@ object WorldReplication {
             val b = Block(id, p[1].toInt(), p[2].toInt(), p[3].toInt(), p[4].toInt(), p[5].toInt(),
                 p[6].toInt(), Color(p[7].toULong()), BlockMaterial.entries[p[8].toInt()],
                 BlockShape.entries[p[9].toInt()], WorldAxis.entries[p[10].toInt()], p[11].toInt())
-            require(b.col in 0 until map.width && b.fixedCoordinate in 0 until map.depth)
-            require(b.w in 1..map.width && b.h in 1..map.height && b.row >= 0 && b.row + b.h <= map.height)
+            require(b.col in 0 until width && b.fixedCoordinate in 0 until depth)
+            require(b.w in 1..width && b.h in 1..height && b.row >= 0 && b.row + b.h <= height)
             require(b.health in 1..b.maxHealth)
             b
         }

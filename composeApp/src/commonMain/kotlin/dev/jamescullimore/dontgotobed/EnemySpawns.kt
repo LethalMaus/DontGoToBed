@@ -5,8 +5,11 @@ import kotlin.math.floor
 import kotlin.random.Random
 
 object EnemySpawns {
-    fun randomLocation(map: TileMap, random: Random = Random.Default) =
-        WorldLocation(random.nextInt(map.width), random.nextInt(map.depth), map.height + 6)
+    fun randomLocation(map: TileMap, random: Random = Random.Default): WorldLocation {
+        if (!map.exploration) return WorldLocation(random.nextInt(map.width), random.nextInt(map.depth), map.height + 6)
+        val origin = ExplorationWorld.origin(ExplorationBiome.entries.random(random))
+        return WorldLocation(origin.latitude + random.nextInt(6, 185), origin.longitude + random.nextInt(6, 281), map.height + 6)
+    }
 
     fun zombie(map: TileMap, unitPx: Float, pxToDp: (Float) -> Dp, random: Random = Random.Default): Zombie {
         val location = randomLocation(map, random)

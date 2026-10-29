@@ -12,14 +12,18 @@ import kotlin.math.ceil
 import kotlin.math.floor
 
 @Composable
-internal fun FoundationLayer(rows: Int, blockSize: Dp, cameraX: Dp, modifier: Modifier = Modifier) {
+internal fun FoundationLayer(rows: Int, blockSize: Dp, cameraX: Dp, modifier: Modifier = Modifier, zoom:Float=1f) {
     Canvas(modifier) {
-        val cell = blockSize.toPx()
-        val top = size.height - rows * cell
-        val shift = ((cameraX.toPx() % cell) + cell) % cell
-        val firstColumn = floor(cameraX.toPx() / cell).toInt()
-        drawRect(Color(0xFF69432D), Offset(0f, top), Size(size.width, rows * cell))
-        for (row in 0 until rows) {
+        val baseCell = blockSize.toPx()
+        val cell = baseCell * zoom
+        // Keep the ground seam fixed, but scale the immutable block texture with the world.
+        val top = size.height - rows * baseCell
+        val scaledCamera = cameraX.toPx() * zoom
+        val shift = ((scaledCamera % cell) + cell) % cell
+        val firstColumn = floor(scaledCamera / cell).toInt()
+        val visibleRows = ceil(rows * baseCell / cell).toInt()
+        drawRect(Color(0xFF69432D), Offset(0f, top), Size(size.width, rows * baseCell))
+        for (row in 0 until visibleRows) {
             for (col in -1..ceil(size.width / cell).toInt()) {
                 val x = col * cell - shift
                 val y = top + row * cell

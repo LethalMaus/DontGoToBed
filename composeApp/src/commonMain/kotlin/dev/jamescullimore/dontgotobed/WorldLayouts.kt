@@ -25,9 +25,9 @@ data class WorldLocation(val latitude: Int, val longitude: Int, val row: Int) {
 
 object WorldLayouts {
     fun name(size: Int) = when (size) {
-        192 -> "Meadow Village"
-        384 -> "Woodland Bridges"
-        else -> "Stonekeep Gardens"
+        192 -> tr("Meadow Village")
+        384 -> tr("Woodland Bridges")
+        else -> tr("Stonekeep Gardens")
     }
 
     /** Authored districts, repeated on a fixed grid with broad, clear paths between them. */

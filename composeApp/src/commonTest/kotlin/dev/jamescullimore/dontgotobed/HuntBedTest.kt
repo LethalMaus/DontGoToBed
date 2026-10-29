@@ -5,6 +5,21 @@ import kotlin.test.*
 import kotlin.random.Random
 
 class HuntBedTest {
+    @Test fun bedArtCanHideItsVoxelsWithoutHidingMatchingNeighbourTerrain() {
+        val map=TileMap(24,12).also { it.seedGroundBand() }
+        val bed=HuntBed(1,6,6,3)
+        HuntBedVoxels(map).set(bed)
+        for(axis in WorldAxis.entries) {
+            map.setActiveSlice(axis,6,6)
+            map.placeBlock(9,3,1,1,BlockMaterial.Wood.color,health=42,material=BlockMaterial.Wood)
+            val visible=map.snapshotRenderableBlocks()
+            assertEquals(6,visible.filter { it.managed }.sumOf { it.w*it.h })
+            assertTrue(visible.any { !it.managed && it.col==9 && it.row==3 })
+            assertTrue(map.getVoxel(6,6,3))
+            assertTrue(map.getVoxel(6,6,4))
+        }
+    }
+
     @Test fun bedHasTwoSolidLayersAndClearSpaceFromBothAxes() {
         val map = TileMap(24, 12).also { it.seedGroundBand() }
         val bed = HuntBed(1, 23, 23, 3)

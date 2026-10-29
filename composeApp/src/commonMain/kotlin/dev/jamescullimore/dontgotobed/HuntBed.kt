@@ -50,8 +50,10 @@ object HuntBedPlacement {
     fun find(map: TileMap, forbidden: List<WorldLocation>, random: Random = Random.Default): HuntBed? {
         // Bound each attempt so crowded large maps cannot stall the round clock.
         val start = random.nextInt(map.width * map.depth)
-        for (offset in 0 until minOf(1024, map.width * map.depth)) {
-            val index = (start + offset) % (map.width * map.depth)
+        val candidates = (0 until minOf(1024, map.width * map.depth)).map {
+            (start + it) % (map.width * map.depth)
+        }
+        for (index in candidates) {
             val lat = index % map.width
             val lon = index / map.width
             if (forbidden.any { map.wrap(it.latitude - lat + 2) < 7 && map.wrap(it.longitude - lon + 2, map.depth) < 7 }) continue

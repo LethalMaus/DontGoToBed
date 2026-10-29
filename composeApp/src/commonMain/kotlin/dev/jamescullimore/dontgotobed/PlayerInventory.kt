@@ -9,12 +9,16 @@ class PlayerInventory(val capacity: Int = 7, val stackLimit: Int = 20) {
     }
     val slots: List<InventorySlot> get() = entries
 
+    internal fun restore(slots:List<InventorySlot>) { require(slots.size==capacity);entries.clear();entries.addAll(slots) }
+
     data class Added(val accepted: Int, val remaining: Int)
+
+    private fun limit(type: ItemType) = if(type.isEquipment) 1 else stackLimit
 
     fun roomFor(type: ItemType, material: BlockMaterial? = null): Int = entries.sumOf {
         when {
-            it.count == 0 -> stackLimit
-            it.type == type && it.material == material -> stackLimit - it.count
+            it.count == 0 -> limit(type)
+            it.type == type && it.material == material -> limit(type) - it.count
             else -> 0
         }
     }
@@ -32,8 +36,8 @@ class PlayerInventory(val capacity: Int = 7, val stackLimit: Int = 20) {
         var remaining = count
         for (i in entries.indices) {
             val slot = entries[i]
-            if (slot.type == type && slot.material == material && slot.count < stackLimit) {
-                val added = minOf(stackLimit - slot.count, remaining)
+            if (slot.type == type && slot.material == material && slot.count < limit(type)) {
+                val added = minOf(limit(type) - slot.count, remaining)
                 entries[i] = slot.copy(count = slot.count + added)
                 remaining -= added
                 if (remaining == 0) return Added(count, 0)
@@ -41,7 +45,7 @@ class PlayerInventory(val capacity: Int = 7, val stackLimit: Int = 20) {
         }
         for (i in entries.indices) {
             if (entries[i].count == 0) {
-                val added = minOf(stackLimit, remaining)
+                val added = minOf(limit(type), remaining)
                 entries[i] = InventorySlot(type, added, material)
                 remaining -= added
                 if (remaining == 0) break

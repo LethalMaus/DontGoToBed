@@ -1,0 +1,47 @@
+Política de privacidade — iOS / iPadOS
+
+Responsável
+James Cullimore publica Don't Go To Bed para iOS / iPadOS (identificador: dev.jamescullimore.dontgotobed). Para suporte ou solicitações de privacidade: info@jamescullimore.dev. Em vigor desde 2026-10-03.
+
+Jogar
+Não é necessário ter conta de jogo, nome real, e-mail ou data de nascimento. O jogo salva as preferências do mundo no dispositivo. Os mundos de exploração têm três espaços no dispositivo do anfitrião, com alterações do terreno, inventário e posição do anfitrião, equipamento e cachorro. Os arquivos locais mantêm uma cópia anterior para recuperação. Os outros modos começam do zero. Os backups do dispositivo podem incluir esses arquivos conforme suas configurações. Não operamos um servidor de jogo online. O app não inclui anúncios, chat público, login social nem análise da atividade de jogo.
+
+Multijogador próximo
+Ao escolher Criar partida ou Entrar, os dispositivos da mesma rede local trocam personagem escolhido, identificador temporário de jogador, endereços de rede, posições, ações e estado do mundo, incluindo terreno, inimigos e itens. O dispositivo anfitrião processa esses dados para executar o jogo compartilhado. Latitude e longitude são coordenadas fictícias do jogo, não sua localização geográfica. São usadas conexões WebSocket locais sem criptografia; use uma rede confiável. Não há busca de partidas pela Internet. As conexões terminam ao fechar a sessão; os mundos salvos permanecem no dispositivo do anfitrião.
+
+Ao criar uma partida, o app anuncia um nome temporário e os dados de conexão na rede local. Abrir o painel Entrar busca essas partidas próximas. A busca termina ao fechar o painel ou colocar o app em segundo plano; o anúncio termina quando o dispositivo deixa de hospedar. Não é necessário nome real nem permissão de localização.
+
+Permissões e armazenamento
+O iOS solicita permissão de rede local quando necessário para o multijogador. Ela pode ser alterada em Configurações. Preferências e caches do SDK de compras podem entrar nos backups conforme seus ajustes Apple. O app não solicita localização, contatos, câmera, microfone, fotos ou rastreamento publicitário.
+
+Gorjetas opcionais
+Todos os personagens e o jogo são gratuitos. Um adulto pode deixar uma gorjeta opcional, única e repetível pela Apple App Store. Gorjetas não liberam conteúdo nem vantagens e não são assinaturas. O RevenueCat só é configurado após passar pela verificação para adultos e se houver uma chave de compras configurada. Abrir essa página pode contatar o RevenueCat e a loja mesmo sem concluir uma compra.
+
+Informações de compra
+A Apple App Store gerencia as credenciais de pagamento; não recebemos os dados do seu cartão. O RevenueCat processa histórico de compras e identificadores de transações, um identificador anônimo de usuário, produtos, preços e dados técnicos necessários, como versões do app e do sistema, idioma e informações de rede. Isso permite validar recibos, prestar suporte, prevenir fraudes e exibir relatórios no RevenueCat. Não vinculamos personagem, histórico de jogo, nome ou e-mail ao RevenueCat nem ativamos integrações de atribuição publicitária. Um indicador de gorjeta pendente pode ser salvo localmente para explicar um pagamento aguardando aprovação.
+
+Mensagens de suporte
+Ao nos contatar, recebemos seu endereço de e-mail e as informações enviadas. Usamos esses dados para responder, investigar problemas ou atender solicitações de privacidade. Não envie senhas, dados de cartão nem informações pessoais desnecessárias sobre crianças. Guardamos as mensagens por até 12 meses após encerrar a solicitação e depois as excluímos, salvo obrigação legal de retenção maior.
+
+Crianças e famílias
+Crianças podem jogar sem abrir a página opcional de apoio. Compras ficam atrás de uma verificação para adultos e usam os controles de compra e aprovação dos responsáveis da loja. Não pedimos que crianças criem perfis, enviem conteúdo ou dados pessoais. Um responsável pode nos contatar sobre informações que acredite terem sido fornecidas por uma criança.
+
+Por que os dados são tratados
+Tratamos os dados necessários para fornecer o jogo, as compras ou o suporte solicitados, prevenir fraudes e cumprir obrigações legais. Quando aplicável, as bases legais são a prestação do serviço solicitado, nossos interesses legítimos em operá-lo, protegê-lo e responder a solicitações, e o cumprimento da lei. Compras são opcionais. As permissões podem ser alteradas nas configurações do dispositivo.
+
+Retenção e exclusão
+Sair da sessão encerra seu estado temporário. Remover o app remove seus dados locais, exceto cópias de segurança mantidas. Em geral, guardamos dados pseudônimos de compras e transações por até 3 anos após a última compra e depois os excluímos ou anonimizamos. Dados de cobrança e registros exigidos por lei podem ser guardados pelo prazo legal aplicável. A Apple App Store e o RevenueCat também tratam dados segundo suas próprias políticas. Registros da loja podem permanecer conforme suas regras de retenção e obrigações legais. Desinstalar não apaga esses registros nem cancela aprovações pendentes. Contate info@jamescullimore.dev para solicitar acesso, correção ou exclusão dos dados sob nosso controle. Podemos precisar de informações limitadas da transação para localizar uma compra anônima; nunca envie credenciais de pagamento.
+
+Fornecedores e tratamento internacional
+A Apple App Store e o RevenueCat tratam dados conforme seus termos e políticas. Os dados podem ser tratados fora do seu país, inclusive nos Estados Unidos, com as salvaguardas aplicáveis às transferências. Não vendemos dados pessoais nem os usamos para publicidade direcionada. Este site não usa análise, pixels publicitários, cookies ou fontes externas. Ele é hospedado no GitHub Pages, cuja infraestrutura pode tratar registros de solicitações, como endereços IP, para servir e proteger as páginas. O GitHub trata esses registros conforme sua política de privacidade.
+
+Escolhas e direitos
+Você pode jogar sozinho, sair do multijogador, não abrir o apoio e não comprar gorjetas. Conforme sua localização, pode ter direitos de acesso, correção, exclusão, limitação ou oposição ao tratamento, cópia dos dados ou reclamação à autoridade de proteção de dados. Contate info@jamescullimore.dev. Isso não altera reembolsos gerenciados pela loja nem os registros que ela deve manter.
+
+Alterações
+Atualizaremos esta página e sua data quando as práticas mudarem. Mudanças importantes serão comunicadas quando exigido. A política deve descrever a versão realmente oferecida na loja.
+
+Políticas dos fornecedores
+RevenueCat: https://www.revenuecat.com/privacy-policy
+GitHub: https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement
+Apple App Store: https://www.apple.com/legal/privacy/

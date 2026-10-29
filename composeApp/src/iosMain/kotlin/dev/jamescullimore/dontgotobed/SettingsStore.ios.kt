@@ -2,6 +2,7 @@ package dev.jamescullimore.dontgotobed
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import platform.Foundation.preferredLanguages
 import platform.Foundation.NSBundle
 import platform.Foundation.NSUserDefaults
 
@@ -33,3 +34,5 @@ actual fun rememberPurchaseRecoveryStore(): SettingsStore = remember {
         override fun writeInt(key: String, value: Int) { preferences.setInteger(value.toLong(), "purchaseRecovery.$key") }
     }
 }
+
+internal actual fun systemLanguageCode(): String = platform.Foundation.NSLocale.preferredLanguages.firstOrNull() as? String ?: "en"

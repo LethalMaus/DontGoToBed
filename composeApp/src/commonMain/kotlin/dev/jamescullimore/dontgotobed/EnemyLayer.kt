@@ -21,7 +21,7 @@ import kotlin.math.floor
 internal fun BoxScope.EnemyLayer(
     vm: GameViewModel, tileMap: TileMap, worldConfig: WorldConfig,
     playerWorldXDp: Dp, playerOtherAxisDp: Dp, centerX: Dp, screenWidth: Dp,
-    unit: Dp, playerWidth: Dp, playerHeight: Dp, paused: Boolean, reduceMotion: Boolean
+    unit: Dp, playerWidth: Dp, playerHeight: Dp, paused: Boolean, reduceMotion: Boolean, shocks: ShockGame
 ) {
     val density = LocalDensity.current
     fun xDpToPx(value: Dp) = with(density) { value.toPx() }
@@ -57,8 +57,8 @@ internal fun BoxScope.EnemyLayer(
             candidates.forEach { candX ->
                 if (candX > -playerWidth && candX < screenWidth + playerWidth) {
                     Image(
-                        painter = zombiePainter,
-                        contentDescription = if (rowAlpha == 1f) "Zombie" else "Nearby-row zombie",
+                        painter = if(shocks.active("Z",z.id)) shockedEnemyPainter(false) else if(z.state==NpcState.Attacking) attackEnemyPainter(false) else zombiePainter,
+                        contentDescription = if (rowAlpha == 1f) tr("Zombie") else tr("Nearby-row zombie"),
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .offset(x = candX, y = -zHeightDp)
@@ -67,7 +67,7 @@ internal fun BoxScope.EnemyLayer(
                                 alpha = rowAlpha
                                 // The source zombie artwork faces right.
                                 scaleX = if (z.facingRight) 1f else -1f },
-                        colorFilter = if (!reduceMotion && now <= z.flashUntil) ColorFilter.tint(Color.Red) else null
+                        colorFilter = if(shocks.active("Z",z.id)) shockTint(shocks.clock,reduceMotion) else if (!reduceMotion && now <= z.flashUntil) ColorFilter.tint(Color.Red) else null
                     )
                 }
             }
@@ -87,9 +87,11 @@ internal fun BoxScope.EnemyLayer(
             val sHeightDp = pxToDp(s.bottomPx)
             candidates.forEach { candX ->
                 if (candX > -playerWidth && candX < screenWidth + playerWidth) {
+                    if(s.electricArrows) androidx.compose.material3.Text("ϟ",color=Color.Yellow,
+                        modifier=Modifier.align(Alignment.BottomStart).offset(x=candX,y=-sHeightDp-playerHeight))
                     Image(
-                        painter = skeletonPainter,
-                        contentDescription = if (rowAlpha == 1f) "Skeleton Archer" else "Nearby-row skeleton",
+                        painter = if(shocks.active("S",s.id)) shockedEnemyPainter(true) else if(s.isAiming || s.pulseAmount>0f) attackEnemyPainter(true) else skeletonPainter,
+                        contentDescription = if(s.electricArrows) tr("Electric skeleton archer") else if (rowAlpha == 1f) tr("Skeleton Archer") else tr("Nearby-row skeleton"),
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .offset(x = candX, y = -sHeightDp)
@@ -98,7 +100,7 @@ internal fun BoxScope.EnemyLayer(
                                 alpha = rowAlpha
                                 scaleX = if (s.facingRight) 1f else -1f
                             },
-                        colorFilter = if (!reduceMotion && now <= s.flashUntil) {
+                        colorFilter = if(shocks.active("S",s.id)) shockTint(shocks.clock,reduceMotion) else if (!reduceMotion && now <= s.flashUntil) {
                             ColorFilter.tint(Color.Red)
                         } else if (!reduceMotion) {
                             skeletonPulseColor(s.pulseAmount)?.let {
@@ -124,12 +126,12 @@ internal fun BoxScope.EnemyLayer(
                 if (candX > -unit && candX < screenWidth + unit) {
                     Box(
                         modifier = Modifier
-                            .semantics { contentDescription = "Arrow" }
+                            .semantics { contentDescription = if(arrow.electric) tr("Electric arrow") else tr("Arrow") }
                             .align(Alignment.BottomStart)
                             .offset(x = candX, y = -aHeightDp)
                             .height(2.dp)
                             .width(unit)
-                            .background(Color.DarkGray)
+                            .background(if(arrow.electric) Color.Yellow else Color.DarkGray)
                     )
                 }
             }

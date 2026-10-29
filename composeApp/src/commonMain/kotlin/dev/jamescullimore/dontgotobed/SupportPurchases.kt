@@ -37,7 +37,7 @@ object SupportPurchases {
     fun clearCancelledPending() {
         if (busy || !checkedWithoutCompletion) return
         clearPending()
-        message = "Payment reminder cleared. Check your store purchase history before leaving another tip."
+        message = tr("Payment reminder cleared. Check your store purchase history before leaving another tip.")
     }
 
     private fun clearPending() {
@@ -50,7 +50,7 @@ object SupportPurchases {
     fun load() {
         if (busy) return
         val key = revenueCatPublicKey()
-        if (key.isBlank()) { message = "Tips aren't available yet. Thank you for playing!"; return }
+        if (key.isBlank()) { message = tr("Tips aren't available yet. Thank you for playing!"); return }
         busy = true
         message = null
         packages = emptyList()
@@ -58,17 +58,17 @@ object SupportPurchases {
             val sdk = client ?: Purchases.configure(PurchasesConfiguration.Builder(key)
                 .showInAppMessagesAutomatically(false).diagnosticsEnabled(false).build()).also { client = it }
             sdk.getOfferings(onError = {
-                busy = false; message = "Couldn't load tips. Check your connection and try again."
+                busy = false; message = tr("Couldn't load tips. Check your connection and try again.")
             }, onSuccess = { offerings ->
                 packages = offerings.all["support"]?.availablePackages.orEmpty()
                     .filter { it.identifier in ids && it.storeProduct.id in ids && it.storeProduct.type == ProductType.INAPP }
                     .sortedBy { ids.indexOf(it.identifier) }
                 busy = false
-                if (packages.isEmpty()) message = "Tips aren't available in the store right now. You can keep playing for free."
+                if (packages.isEmpty()) message = tr("Tips aren't available in the store right now. You can keep playing for free.")
                 if (awaitingApproval) checkPending()
             })
         } catch (_: Exception) {
-            busy = false; message = "Tips are unavailable right now. You can keep playing for free."
+            busy = false; message = tr("Tips are unavailable right now. You can keep playing for free.")
         }
     }
 
@@ -86,18 +86,18 @@ object SupportPurchases {
                 busy = false
                 if (error.code != PurchasesErrorCode.PaymentPendingError) clearPending()
                 message = when {
-                    cancelled -> "Purchase cancelled. Nothing has changed in your game."
-                    error.code == PurchasesErrorCode.PaymentPendingError -> "Waiting for payment approval. No need to try again while it is pending."
-                    else -> "The purchase couldn't be completed. Please check the store and try again."
+                    cancelled -> tr("Purchase cancelled. Nothing has changed in your game.")
+                    error.code == PurchasesErrorCode.PaymentPendingError -> tr("Waiting for payment approval. No need to try again while it is pending.")
+                    else -> tr("The purchase couldn't be completed. Please check the store and try again.")
                 }
             }, onSuccess = { _, _ ->
                 busy = false
                 clearPending()
-                message = "Thank you for supporting our family game! All gameplay stays free."
+                message = tr("Thank you for supporting our family game! All gameplay stays free.")
             })
         } catch (_: Exception) {
             busy = false
-            message = "The store was interrupted. Check payment status before trying again."
+            message = tr("The store was interrupted. Check payment status before trying again.")
         }
     }
 
@@ -108,20 +108,20 @@ object SupportPurchases {
         busy = true
         checkedWithoutCompletion = false
         try { sdk.getCustomerInfo(fetchPolicy = CacheFetchPolicy.FETCH_CURRENT,
-            onError = { busy = false; message = "Couldn't check the payment. Please try again later." },
+            onError = { busy = false; message = tr("Couldn't check the payment. Please try again later.") },
             onSuccess = { info ->
                 busy = false
                 if (info.nonSubscriptionTransactions.any { it.productIdentifier == payment.product && it.purchaseDateMillis >= payment.startedAt }) {
                     clearPending()
-                    message = "Thank you! Your tip has been confirmed. All gameplay stays free."
+                    message = tr("Thank you! Your tip has been confirmed. All gameplay stays free.")
                 } else {
                     checkedWithoutCompletion = true
-                    message = "No completed payment yet. Check approval in your store account; you can return to the game."
+                    message = tr("No completed payment yet. Check approval in your store account; you can return to the game.")
                 }
             })
         } catch (_: Exception) {
             busy = false
-            message = "Couldn't check the payment. Please try again later."
+            message = tr("Couldn't check the payment. Please try again later.")
         }
     }
 

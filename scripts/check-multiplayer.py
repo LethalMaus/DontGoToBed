@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live smoke test against a disposable hosted game (requires Python websockets).
 
-Start Host and choose a character. For an emulator:
+Open Multiplayer, choose Host, then press Start hosted game. For an emulator:
   adb forward tcp:18765 tcp:8082
   python3 scripts/check-multiplayer.py ws://127.0.0.1:18765
 The test joins two peers, builds/mines one stone ramp, and fires one arrow.
@@ -19,12 +19,18 @@ class Peer:
         self.id = None
         self.width = 192
         self.height = 54
+        self.exploration = False
+        self.unlimited = False
+        self.portal_seed = 0
         self.ready = asyncio.Event()
         self.receipts = {}
+        self.appearances = {}
+        self.player_states = {}
         self.blocks = {}
         self.transactions = {}
         self.entities = []
         self.chunks = []
+        self.on_round = lambda message: None
         self.task = asyncio.create_task(self.read())
 
     async def send(self, payload):
@@ -37,12 +43,22 @@ class Peer:
             if not raw.startswith('ROUND|'):
                 continue
             message = raw[6:]
+            self.on_round(message)
             if message.startswith('WORLD_CONFIG;'):
-                _, width, height = message.split(';')
-                dimensions = int(width), int(height)
-                if dimensions != (self.width, self.height):
-                    self.width, self.height = dimensions
-                    await self.send(f'WORLD_READY;{width};{height}')
+                parts = message.split(';')
+                width, height = int(parts[1]), int(parts[2])
+                exploration = len(parts) > 3 and parts[3] == 'true'
+                unlimited = len(parts) > 4 and parts[4] == 'true'
+                portal_seed = int(parts[5]) if len(parts) > 5 else 0
+                changed = (width, height, exploration, unlimited, portal_seed) != (self.width, self.height, self.exploration, self.unlimited, self.portal_seed)
+                self.portal_seed = portal_seed
+                self.width, self.height, self.exploration, self.unlimited = width, height, exploration, unlimited
+                if changed:
+                    await self.send(f'WORLD_READY;{width};{height};{str(exploration).lower()};{str(unlimited).lower()};{self.portal_seed}')
+            elif message.startswith('PLAYER_STATE;'):
+                fields = message.split(';')
+                self.player_states[int(fields[1])] = fields[2:]
+                self.appearances[int(fields[1])] = fields[8] if len(fields) > 8 else 'original'
             elif message.startswith('ACTION_RESULT;'):
                 p = message.split(';')
                 if int(p[2]) == self.id:
@@ -77,7 +93,7 @@ class Peer:
         while not self.ready.is_set():
             if self.task.done():
                 self.task.result()
-            await self.send(f'WORLD_READY;{self.width};{self.height}')
+            await self.send(f'WORLD_READY;{self.width};{self.height};{str(self.exploration).lower()};{str(self.unlimited).lower()};{self.portal_seed}')
             try:
                 await asyncio.wait_for(self.ready.wait(), 3)
             except TimeoutError:
@@ -106,8 +122,10 @@ async def main(uri):
     async with websockets.connect(uri, max_size=2**20) as sa, websockets.connect(uri, max_size=2**20) as sb:
         a, b = Peer(sa), Peer(sb)
         await asyncio.gather(a.synchronize(), b.synchronize())
-        await a.send('PLAYER;10000;10000;40000;true;1;5')
+        await a.send('PLAYER;10000;10000;40000;true;1;5;adventure')
         await b.send('PLAYER;10000;10000;40000;true;1;5')
+        await b.wait_until(lambda: b.appearances.get(a.id) == "adventure")
+        await a.wait_until(lambda: a.appearances.get(b.id) == "original")
         await asyncio.sleep(.2)
         receipt, request_id = await a.command('PLACE', [12, 40, 2, 4])
         assert receipt == 'true;_;_', receipt
