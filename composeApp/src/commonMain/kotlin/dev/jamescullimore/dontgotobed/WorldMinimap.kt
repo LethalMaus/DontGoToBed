@@ -2,7 +2,13 @@ package dev.jamescullimore.dontgotobed
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
@@ -44,12 +50,19 @@ internal fun minimapViewport(player: Offset, exploration: Boolean): MinimapViewp
 @Composable
 internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: WorldAxis, modifier: Modifier = Modifier, showPortals: Boolean = false) {
     val viewport = minimapViewport(player, showPortals)
-    Column(modifier.background(Color(0xEE10243A)).padding(8.dp)
+    BoxWithConstraints(modifier.width(136.dp).background(Color(0xEE10243A)).padding(8.dp)
         .semantics { contentDescription = tr("Live world minimap. Latitude left to right, longitude top to bottom.") }) {
+        // Fit the canvas to the HUD's available height without stretching world coordinates.
+        // Large accessibility text can scroll within the panel rather than cover the controls.
+        val fontScale = LocalDensity.current.fontScale
+        val normalMapHeight = if (showPortals) 180.dp else 120.dp
+        val mapHeight = (maxHeight - 84.dp * fontScale).coerceIn(48.dp, normalMapHeight)
+        val mapWidth = if (showPortals) mapHeight * (2f / 3f) else mapHeight
+        Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
         if(showPortals) Text(tr(ExplorationWorld.biome((player.x*ExplorationWorld.SIZE).toInt(),(player.y*ExplorationWorld.SIZE).toInt()).title),
             color=Color.White,fontSize=12.sp)
         if (!showPortals) Text(tr("Whole world · Lat → / Long ↓"), color = Color.White, fontSize = 10.sp, lineHeight = 12.sp)
-        Canvas(Modifier.size(120.dp, if (showPortals) 180.dp else 120.dp).padding(5.dp)) {
+        Canvas(Modifier.size(mapWidth, mapHeight).padding(5.dp)) {
             fun point(p: Offset) = Offset(p.x * size.width, p.y * size.height)
             for (i in 0..4) {
                 val fraction = i / 4f
@@ -76,4 +89,5 @@ internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: Wo
             withStyle(SpanStyle(color = Color(0xFFFFA040))) { append("● " + tr("Skeletons") + "") }
         }, fontSize = 9.sp, lineHeight = 12.sp)
     }
+}
 }

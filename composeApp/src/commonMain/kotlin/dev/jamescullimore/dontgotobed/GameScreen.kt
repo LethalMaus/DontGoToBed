@@ -33,6 +33,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -196,6 +198,11 @@ private fun GameSession(
         var hostIp by remember { mutableStateOf(initialHostIp) }
 
         val viewportHeight = maxHeight
+        val hudSafeHeight = maxHeight - with(density) {
+            (WindowInsets.safeDrawing.getTop(this) + WindowInsets.safeDrawing.getBottom(this)).toDp()
+        }
+        // The map panel starts below the top utility controls.
+        val mapTop = 84.dp
         val unit = 15.dp
         val foundationRows = WorldViewport.foundationRows(maxWidth.value, maxHeight.value)
         val foundationHeight = unit * (WorldViewport.BLOCK_CELLS * foundationRows)
@@ -2351,7 +2358,7 @@ private fun GameSession(
                     "${cycle.remainingSeconds / 60}:${(cycle.remainingSeconds % 60).toString().padStart(2, '0')}",
                 color = Color.White,
                 modifier = Modifier.align(Alignment.TopCenter).zIndex(3f)
-                    .clickable { hintRequest++ }
+                    .clickable { isMinimapOpen = false; hintRequest++ }
                     .background(Color.Black.copy(alpha = 0.6f)).padding(8.dp)
             )
             val playerCenterForObjectivePx = xDpToPx(playerWorldXDp) + playerWidthPx / 2f
@@ -2364,7 +2371,7 @@ private fun GameSession(
                 else -> "nearby"
             }
             val mammyDistanceTiles = abs(mammyDxTiles).toInt()
-            if (accessibility.showInfoText || showTemporaryHint) Text(
+            if ((accessibility.showInfoText || showTemporaryHint) && !isMinimapOpen) Text(
                 text = if(vineStand!=null) {
                     tr("Move left/right to step off. Down to climb. Jump to let go.")
                 } else if(vineSwing!=null) {
@@ -2399,7 +2406,12 @@ private fun GameSession(
                     cameraBottomPx/unitPx,(cameraBottomPx/unitPx+playableHeight.value/unit.value).coerceAtMost(tileMap.height.toFloat())))
             },enabled=!controlsBlocked && !isJumping && vineSwing==null && specials.event==null && specialCooldown==0,
                 contentPadding=PaddingValues(6.dp),
-                modifier=Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top=if(viewportHeight<460.dp) 142.dp else 210.dp,end=14.dp).size(64.dp).zIndex(5f)
+                modifier=Modifier.align(if (viewportHeight < 460.dp) Alignment.BottomEnd else Alignment.TopEnd)
+                    .safeDrawingPadding()
+                    .padding(top = if (viewportHeight < 460.dp) 0.dp else 210.dp,
+                        bottom = if (viewportHeight < 460.dp) 12.dp else 0.dp,
+                        end = if (viewportHeight < 460.dp) 110.dp else 14.dp)
+                    .size(64.dp).zIndex(5f)
                     .semantics {
                         contentDescription=tr(player.special().title)
                         stateDescription=if(specialCooldown>0) tr("Special ready in {0}s",(specialCooldown+999)/1000) else tr(player.special().title)
@@ -2920,7 +2932,7 @@ private fun GameSession(
                     }
                 }
                 Column(modifier = Modifier.align(Alignment.TopCenter).padding(top = 120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (accessibility.showInfoText) notices.forEach { n ->
+                    if (accessibility.showInfoText && !isMinimapOpen) notices.forEach { n ->
                         Box(modifier = Modifier
                             .padding(2.dp)
                             .background(Color.Black.copy(alpha = 0.4f))
@@ -3007,12 +3019,6 @@ private fun GameSession(
                     , contentPadding = PaddingValues(8.dp)
                 ) { GameIcon(GameIconKind.Rotate, tr("Turn the world"), Modifier.size(28.dp), tint = Color.White) }
 
-                if (ownsMap) Button(
-                    onClick = { isMinimapOpen = !isMinimapOpen },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 58.dp, end = 12.dp)
-                        .semantics { contentDescription = if (isMinimapOpen) tr("Hide minimap") else tr("Show minimap") },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.55f), contentColor = Color.White)
-                ) { Text(if (isMinimapOpen) tr("Hide map") else tr("Map")) }
                 if (ownsMap && isMinimapOpen) {
                     val span = tileMap.width * unitPx
                     val playerPoint = minimapPosition(xDpToPx(playerWorldXDp), xDpToPx(playerOtherAxisDp), activeWorldAxis, span)
@@ -3041,8 +3047,10 @@ private fun GameSession(
                         }
                     }
                     WorldMinimap(markers, playerPoint, activeWorldAxis,
-                        Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 170.dp).zIndex(6f)
-                            .heightIn(max = (viewportHeight - 40.dp).coerceAtLeast(80.dp)).verticalScroll(rememberScrollState()),
+                        Modifier.align(Alignment.TopEnd).safeDrawingPadding()
+                            .padding(top = mapTop, end = 110.dp).zIndex(6f)
+                            // Keep the bottom inventory bar clear; the right action rail stays outside the map.
+                            .heightIn(max = (hudSafeHeight - mapTop - 92.dp).coerceAtLeast(80.dp)),
                         showPortals = worldConfig.exploration)
                 }
 
@@ -3077,6 +3085,17 @@ private fun GameSession(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // The map belongs beside the bag, with 16dp total spacing between touch targets.
+                    if (ownsMap) Button(
+                        onClick = { isMinimapOpen = !isMinimapOpen },
+                        modifier = Modifier.padding(end = 11.dp).size(48.dp)
+                            .semantics {
+                                contentDescription = if (isMinimapOpen) tr("Hide minimap") else tr("Show minimap")
+                                selected = isMinimapOpen
+                            },
+                        contentPadding = PaddingValues(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isMinimapOpen) Color(0xFF526C42) else Color.Black.copy(alpha = 0.55f), contentColor = Color.White)
+                    ) { GameIcon(GameIconKind.Map, null, Modifier.size(32.dp)) }
                     Button(
                         onClick = { isInventoryOpen = !isInventoryOpen },
                         modifier = Modifier.size(48.dp),
