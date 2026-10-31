@@ -31,18 +31,26 @@ class CraftingTest {
         val bench=Crafting.bench(ExplorationBiome.Meadow)
         map.setActiveSlice(WorldAxis.Latitude,bench.latitude,bench.longitude)
         map.placeBlock(bench.latitude,0,3,3,BlockMaterial.Wood.color)
-        val point=RopePoint(50f,10f,3f)
+        val point=RopePoint(53f,10f,3f)
         assertNotNull(Crafting.nearby(map,point))
+        assertNull(Crafting.nearby(map,RopePoint(50f,10f,3f))) // Old distant activation.
+        for (p in listOf(RopePoint(56f,10f,3f), RopePoint(61f,10f,3f),
+            RopePoint(56f,7f,3f), RopePoint(56f,15f,3f))) assertNotNull(Crafting.nearby(map,p))
+        for (p in listOf(RopePoint(51f,10f,3f), RopePoint(62f,10f,3f),
+            RopePoint(56f,5f,3f), RopePoint(56f,16f,3f), RopePoint(53f,7f,3f)))
+            assertNull(Crafting.nearby(map,p)) // Beyond adjacent block or diagonally separated.
+
         assertNull(Crafting.nearby(map,RopePoint(50f,30f,3f)))
         assertNull(Crafting.nearby(map,RopePoint(50f,10f,20f)))
         val vm=GameViewModel();val original=vm.bag.slots.toList()
         val authority=SharedWorldAuthority(map,vm,15f,30f,45f,WorldAxis.Latitude,
-            knownPosition={WorldLocation(50,10,3)},positions={emptyList()})
-        val action=WorldAction(123,"CRAFT",WorldAxis.Latitude,50000,10000,3000,listOf("rope"))
+            knownPosition={WorldLocation(53,10,3)},positions={emptyList()})
+        val action=WorldAction(123,"CRAFT",WorldAxis.Latitude,53000,10000,3000,listOf("rope"))
         val receipts=ActionReceipts();var applications=0
         repeat(3) { assertEquals("true;_;_",receipts.resolve(action.id) { applications++;authority.apply(1,action) }) }
         assertEquals(1,applications);assertContentEquals(original,vm.bag.slots)
         assertEquals("false;_;_",authority.apply(1,action.copy(latitude=80000)))
+        assertEquals("false;_;_",authority.apply(1,action.copy(latitude=50000)))
         assertEquals("false;_;_",authority.apply(1,action.copy(arguments=listOf("unknown"))))
     }
 }

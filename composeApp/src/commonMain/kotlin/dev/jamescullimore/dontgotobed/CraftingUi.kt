@@ -18,6 +18,16 @@ import androidx.compose.ui.window.*
     Canvas(Modifier.align(Alignment.BottomStart)
         .offset(x = center + unit * wrappedDelta(player.along(axis), at.along(axis).toFloat(), map.width), y = -unit * at.row)
         .size(unit * 3.4f, unit * 2.2f).semantics { contentDescription = tr("Workbench") }) {
+        drawWorkbench()
+    }
+}
+
+/** The contextual action uses exactly the same artwork as the world station. */
+@Composable internal fun WorkbenchIcon(modifier: Modifier = Modifier) {
+    Canvas(modifier) { drawWorkbench() }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWorkbench() {
         val w=size.width;val h=size.height
         val dark=Color(0xFF4F3024);val wood=Color(0xFFA86A3C);val light=Color(0xFFD5A46B)
         for(x in listOf(.12f,.76f)) {
@@ -32,7 +42,6 @@ import androidx.compose.ui.window.*
         drawLine(dark,Offset(w*.64f,h*.18f),Offset(w*.78f,h*.02f),w*.055f,StrokeCap.Round)
         drawRoundRect(light,Offset(w*.69f,0f),Size(w*.18f,h*.10f),CornerRadius(w*.02f))
         drawRoundRect(light,Offset(w*.19f,h*.10f),Size(w*.24f,h*.08f),CornerRadius(w*.02f))
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

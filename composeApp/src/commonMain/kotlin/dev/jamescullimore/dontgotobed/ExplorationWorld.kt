@@ -68,16 +68,6 @@ internal object ExplorationWorld {
             lon < it.location.longitude + 3 && lon + 2 > it.location.longitude &&
             row < it.location.row + 5 && row + 3 > it.location.row
     }
-    /** A deliberate melee press works inside an arch or on its aimed face in either view. */
-    fun hitPortal(lat: Float, lon: Float, row: Float, axis: WorldAxis, aimed: List<Cell>, portals: List<WorldPortal> = portals()): WorldPortal? =
-        touching(lat, lon, row, portals) ?: portals.firstOrNull { portal ->
-            val p = portal.location
-            val across = if (axis == WorldAxis.Latitude) lon else lat
-            across < p.across(axis) + 3 && across + 2 > p.across(axis) && aimed.any { cell ->
-                cell.c in p.along(axis) until p.along(axis) + 3 && cell.r in p.row until p.row + 5
-            }
-        }
-
     /** Gates connect in pairs: arriving players can immediately hit the return gate. */
     fun returnGate(portals: List<WorldPortal>, entered: WorldPortal): WorldPortal? {
         val from = biome(entered.location.latitude, entered.location.longitude)

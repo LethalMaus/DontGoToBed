@@ -49,7 +49,7 @@ internal fun SettingsStore.saveOutfit(player: Player, outfit: PlayerOutfit) =
 internal fun characterFront(player: Player, outfit: PlayerOutfit = PlayerOutfit.Original): DrawableResource = when (player) {
     Player.Leo -> if (outfit == PlayerOutfit.Adventure) Res.drawable.leo_forest_front else Res.drawable.leo_front
     Player.Ian -> if (outfit == PlayerOutfit.Adventure) Res.drawable.ian_sunset_front else Res.drawable.ian_front
-    Player.Papa -> if (outfit == PlayerOutfit.Adventure) Res.drawable.papa_ocean_front else Res.drawable.papa_front
+    Player.Papa -> error("Papa uses refreshedCharacterArt for every pose")
 }
 
 internal fun characterSide(player: Player, walking: Boolean, outfit: PlayerOutfit = PlayerOutfit.Original): DrawableResource = when (player) {

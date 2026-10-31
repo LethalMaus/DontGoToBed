@@ -45,8 +45,8 @@ internal fun outfitSheet(player: Player, outfit: PlayerOutfit): OutfitSheet? = w
 internal fun characterPainter(player: Player, outfit: PlayerOutfit, pose: CharacterPose): Painter {
     val refreshed = refreshedCharacterArt(player, outfit)
     if (refreshed != null) {
-        // Keep the exact approved standalone portrait in the original outfit.
-        if (pose == CharacterPose.Front && validOutfit(player, outfit) == PlayerOutfit.Original)
+        // Leo retains his approved standalone portrait; Papa uses the current atlas in every pose.
+        if (player == Player.Leo && pose == CharacterPose.Front && validOutfit(player, outfit) == PlayerOutfit.Original)
             return painterResource(characterFront(player, PlayerOutfit.Original))
         return atlasPainter(refreshed.resource, refreshed.frames[pose.ordinal])
     }

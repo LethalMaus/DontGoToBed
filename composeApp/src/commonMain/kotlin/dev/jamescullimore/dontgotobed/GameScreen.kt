@@ -201,8 +201,8 @@ private fun GameSession(
         val hudSafeHeight = maxHeight - with(density) {
             (WindowInsets.safeDrawing.getTop(this) + WindowInsets.safeDrawing.getBottom(this)).toDp()
         }
-        // The map panel starts below the top utility controls.
-        val mapTop = 84.dp
+        // The left corner is clear of the centred objective and right utility controls.
+        val mapTop = 14.dp
         val unit = 15.dp
         val foundationRows = WorldViewport.foundationRows(maxWidth.value, maxHeight.value)
         val foundationHeight = unit * (WorldViewport.BLOCK_CELLS * foundationRows)
@@ -1701,6 +1701,15 @@ private fun GameSession(
             return false
         }
 
+        fun reachablePortal(): WorldPortal? {
+            if (!worldConfig.exploration || isJumping || specials.event != null) return null
+            val at = localRopePoint()
+            return ExplorationWorld.touching(at.lat, at.lon, at.row, tileMap.portals)
+        }
+        val canCraftHere = !paused && !syncingWorld && !isParalyzed && playerHp > 0 &&
+            !isJumping && specials.event == null && Crafting.nearby(tileMap, localRopePoint()) != null
+        val actionPortal = reachablePortal()
+
         // Keep melee targets within the joystick's direction, including repeated swings.
         fun hit() {
             if (isAxisTransitioning || controlsBlocked) return
@@ -1715,12 +1724,6 @@ private fun GameSession(
                 floor(heightPx / unitPx).toInt(),
                 floor((heightPx + playerHeightPx - 0.001f) / unitPx).toInt(), facing
             )
-            if (worldConfig.exploration && !isJumping) {
-                val position = localRopePoint()
-                val portal = ExplorationWorld.hitPortal(position.lat, position.lon, position.row,
-                    activeWorldAxis, candidates, tileMap.portals)
-                if (portal != null) { travelThroughPortal(portal); return }
-            }
             val aimed = MeleeTargeting.select(candidates) {
                 tileMap.inY(it.r) && (tileMap.hasPieceAt(wrapCol(it.c), it.r) || cellContainsEnemy(it))
             }
@@ -3047,19 +3050,13 @@ private fun GameSession(
                         }
                     }
                     WorldMinimap(markers, playerPoint, activeWorldAxis,
-                        Modifier.align(Alignment.TopEnd).safeDrawingPadding()
-                            .padding(top = mapTop, end = 110.dp).zIndex(6f)
-                            // Keep the bottom inventory bar clear; the right action rail stays outside the map.
-                            .heightIn(max = (hudSafeHeight - mapTop - 92.dp).coerceAtLeast(80.dp)),
+                        Modifier.align(Alignment.TopStart).safeDrawingPadding()
+                            .padding(top = mapTop, start = 14.dp).zIndex(6f)
+                            // Leave the lower-left movement controls and inventory clear.
+                            .heightIn(max = (hudSafeHeight - mapTop - 184.dp).coerceAtLeast(80.dp)),
                         showPortals = worldConfig.exploration)
                 }
 
-                val canCraftHere = !paused && !syncingWorld && !isParalyzed && playerHp > 0 &&
-                    !isJumping && specials.event == null && Crafting.nearby(tileMap,localRopePoint()) != null
-                if (canCraftHere) Button(onClick={isInventoryOpen=false;isCraftingOpen=true},
-                    enabled=!controlsBlocked,modifier=Modifier.align(Alignment.TopStart).padding(top=110.dp,start=14.dp)) {
-                    Text(tr("Craft"))
-                }
                 if(isCraftingOpen) CraftingDialog(vm.bag,craftingPending,canCraftHere,onMake={ id ->
                     if(canCraftHere && !craftingPending && Crafting.plan(vm.bag,id).result==CraftResult.Crafted) {
                         if(isHostSelected==false) craftingPending=requestWorldAction("CRAFT",listOf(id))
@@ -3626,7 +3623,8 @@ private fun GameSession(
                         hit()
                     }
                 }
-                LaunchedEffect(isHitPressed) {
+                LaunchedEffect(isHitPressed, actionPortal, canCraftHere, controlsBlocked) {
+                    if (actionPortal != null || canCraftHere || controlsBlocked) return@LaunchedEffect
                     if (isHitPressed) {
                         throttledHit(minDelayMs = 200L)
                         delay(400L)
@@ -3639,13 +3637,28 @@ private fun GameSession(
                 Button(
                     // Fast taps can begin/end between compositions, bypassing the hold effect.
                     // The shared throttle prevents a second hit when the hold already fired.
-                    onClick = { throttledHit() },
-                    modifier = Modifier.semantics { contentDescription = tr("Hit") },
-                    enabled = !controlsBlocked,
+                    onClick = {
+                        if (isAxisTransitioning || controlsBlocked) return@Button
+                        when {
+                            actionPortal != null -> travelThroughPortal(actionPortal)
+                            canCraftHere -> { isInventoryOpen = false; isCraftingOpen = true }
+                            else -> throttledHit()
+                        }
+                    },
+                    modifier = Modifier.semantics {
+                        contentDescription = tr(when { actionPortal != null -> "Portals"; canCraftHere -> "Craft"; else -> "Hit" })
+                    },
+                    enabled = !controlsBlocked && !isAxisTransitioning,
                     interactionSource = hitInteraction,
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF17324E), contentColor = Color.White),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
-                ) { ActionIcon(ActionIconKind.Hit) }
+                ) {
+                    when {
+                        actionPortal != null -> Image(portalPainter(actionPortal.destination), null, Modifier.size(32.dp))
+                        canCraftHere -> WorkbenchIcon(Modifier.size(32.dp))
+                        else -> ActionIcon(ActionIconKind.Hit)
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 val placeInteraction = remember { MutableInteractionSource() }
                 val isPlacePressed by placeInteraction.collectIsPressedAsState()

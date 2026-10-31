@@ -27,25 +27,25 @@ class ExplorationWorldTest {
         }
     }
 
-    @Test fun portalHitsRequireOverlapOrAimedMeleeRangeInEitherView() {
+    @Test fun portalActionsRequireBodyOverlapInEitherView() {
         val portal = ExplorationWorld.portals().first()
         val p = portal.location
         for (axis in WorldAxis.entries) {
             val along = p.along(axis)
             val across = p.across(axis).toFloat()
-            fun hit(offset: Int, facing: Direction, other: Float = across): WorldPortal? {
-                val left = along + offset
-                return ExplorationWorld.hitPortal(
-                    if (axis == WorldAxis.Latitude) left.toFloat() else other,
-                    if (axis == WorldAxis.Longitude) left.toFloat() else other,
-                    3f, axis, MeleeTargeting.candidates(left, left + 1, 3, 5, facing))
-            }
-            assertEquals(portal, hit(-3, Direction.Right))
-            assertEquals(portal, hit(4, Direction.Left))
-            assertEquals(portal, hit(0, Direction.Left))
-            assertNull(hit(-3, Direction.Left))
-            assertNull(hit(-6, Direction.Right))
-            assertNull(hit(-3, Direction.Right, across + 10))
+            fun contact(offset: Float, other: Float = across, row: Float = 3f): WorldPortal? =
+                ExplorationWorld.touching(
+                    if (axis == WorldAxis.Latitude) along + offset else other,
+                    if (axis == WorldAxis.Longitude) along + offset else other, row)
+            assertEquals(portal, contact(0f))
+            assertEquals(portal, contact(-1.9f))
+            assertEquals(portal, contact(2.9f))
+            assertNull(contact(-2f)) // Adjacent, but outside the arch.
+            assertNull(contact(3f))
+            assertNull(contact(-3f)) // Previously reachable by aiming a melee swing.
+            assertNull(contact(4f))
+            assertNull(contact(0f, across + 3f))
+            assertNull(contact(0f, row = 8f))
         }
     }
 

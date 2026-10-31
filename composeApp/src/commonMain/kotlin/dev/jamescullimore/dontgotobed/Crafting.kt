@@ -21,7 +21,13 @@ internal object Crafting {
     fun nearby(map: TileMap, point: RopePoint): WorldLocation? {
         if (!map.exploration) return null
         val at = bench(ExplorationWorld.biome(point))
-        return at.takeIf { abs(point.lat - it.latitude) <= 6 && abs(point.lon - it.longitude) <= 3 &&
+        // One 3-cell block directly beside the 3×3 workbench footprint, not a radius.
+        // Use the player's 2×2 footprint so access is symmetric from either world axis.
+        val overlapsLatitude = point.lat < at.latitude + 3 && point.lat + 2 > at.latitude
+        val overlapsLongitude = point.lon < at.longitude + 3 && point.lon + 2 > at.longitude
+        val besideLatitude = point.lat < at.latitude + 6 && point.lat + 2 > at.latitude - 3
+        val besideLongitude = point.lon < at.longitude + 6 && point.lon + 2 > at.longitude - 3
+        return at.takeIf { ((overlapsLatitude && besideLongitude) || (overlapsLongitude && besideLatitude)) &&
             abs(point.row - it.row) <= 2 && benchSupported(map, it) }
     }
     fun count(bag: PlayerInventory, material: BlockMaterial) = bag.slots.sumOf {

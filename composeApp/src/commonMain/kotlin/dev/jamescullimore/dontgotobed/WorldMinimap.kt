@@ -4,10 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,19 +50,18 @@ internal fun minimapViewport(player: Offset, exploration: Boolean): MinimapViewp
 @Composable
 internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: WorldAxis, modifier: Modifier = Modifier, showPortals: Boolean = false) {
     val viewport = minimapViewport(player, showPortals)
-    BoxWithConstraints(modifier.width(136.dp).background(Color(0xEE10243A)).padding(8.dp)
+    BoxWithConstraints(modifier.background(Color(0xFF10243A).copy(alpha = 0.5f)).padding(6.dp)
         .semantics { contentDescription = tr("Live world minimap. Latitude left to right, longitude top to bottom.") }) {
-        // Fit the canvas to the HUD's available height without stretching world coordinates.
+        // A compact square overview normalises each axis within the current region.
         // Large accessibility text can scroll within the panel rather than cover the controls.
         val fontScale = LocalDensity.current.fontScale
-        val normalMapHeight = if (showPortals) 180.dp else 120.dp
-        val mapHeight = (maxHeight - 84.dp * fontScale).coerceIn(48.dp, normalMapHeight)
-        val mapWidth = if (showPortals) mapHeight * (2f / 3f) else mapHeight
-        Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+        val mapSide = (maxHeight - 24.dp * fontScale).coerceIn(48.dp, 112.dp)
+        Column(Modifier.verticalScroll(rememberScrollState())) {
         if(showPortals) Text(tr(ExplorationWorld.biome((player.x*ExplorationWorld.SIZE).toInt(),(player.y*ExplorationWorld.SIZE).toInt()).title),
             color=Color.White,fontSize=12.sp)
         if (!showPortals) Text(tr("Whole world · Lat → / Long ↓"), color = Color.White, fontSize = 10.sp, lineHeight = 12.sp)
-        Canvas(Modifier.size(mapWidth, mapHeight).padding(5.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Canvas(Modifier.size(mapSide).padding(4.dp)) {
             fun point(p: Offset) = Offset(p.x * size.width, p.y * size.height)
             for (i in 0..4) {
                 val fraction = i / 4f
@@ -81,13 +80,14 @@ internal fun WorldMinimap(markers: List<MinimapMarker>, player: Offset, axis: Wo
             drawCircle(Color.White, 4.dp.toPx(), at, style = Stroke(1.dp.toPx()))
         }
         Text(buildAnnotatedString {
-            withStyle(SpanStyle(color = Color.Cyan)) { append("● " + tr("You") + "   ") }
+            withStyle(SpanStyle(color = Color.Cyan)) { append("● " + tr("You") + "\n") }
             withStyle(SpanStyle(color = Color(0xFF608CFF))) { append("● " + tr("Players") + "\n") }
             withStyle(SpanStyle(color = Color(0xFFFF80C0))) { append("● " + tr("Mammy") + "\n") }
             if (showPortals) withStyle(SpanStyle(color = Color(0xFFD694FF))) { append("● " + tr("Portals") + "\n") }
-            withStyle(SpanStyle(color = Color.Green)) { append("● " + tr("Zombies") + "   ") }
+            withStyle(SpanStyle(color = Color.Green)) { append("● " + tr("Zombies") + "\n") }
             withStyle(SpanStyle(color = Color(0xFFFFA040))) { append("● " + tr("Skeletons") + "") }
-        }, fontSize = 9.sp, lineHeight = 12.sp)
+        }, fontSize = 10.sp, lineHeight = 14.sp)
+        }
     }
 }
 }
